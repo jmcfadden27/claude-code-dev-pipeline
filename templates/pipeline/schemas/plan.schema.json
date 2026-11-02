@@ -1,0 +1,47 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["summary", "approach", "steps", "files", "risks", "questions", "readyToBuild"],
+  "properties": {
+    "summary": {
+      "type": "string",
+      "description": "One or two sentences: what the requested change is, in your own words."
+    },
+    "approach": {
+      "type": "string",
+      "description": "How you would implement it and why, in a short paragraph."
+    },
+    "steps": {
+      "type": "array",
+      "description": "Ordered implementation steps.",
+      "items": { "type": "string" }
+    },
+    "files": {
+      "type": "array",
+      "description": "Files you expect to create or change.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "change"],
+        "properties": {
+          "path": { "type": "string" },
+          "change": { "type": "string", "enum": ["create", "modify", "delete"] }
+        }
+      }
+    },
+    "risks": {
+      "type": "array",
+      "description": "What could go wrong or needs care (data, security, compatibility).",
+      "items": { "type": "string" }
+    },
+    "questions": {
+      "type": "array",
+      "description": "Decisions only the requester can make. Empty when nothing is unclear.",
+      "items": { "type": "string" }
+    },
+    "readyToBuild": {
+      "type": "boolean",
+      "description": "True only when there are no open questions and the plan can be built as written."
+    }
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "deny": [
+      "Bash(git push *)",
+      "Bash(git remote *)",
+      "Bash(gh *)",
+      "Bash(curl *)",
+      "Bash(wget *)",
+      "Read(./.env)",
+      "Read(./.env.*)",
+      "Edit(./.github/**)",
+      "Edit(./.claude/**)",
+      "Edit(./pipeline/**)",
+      "Write(./.github/**)",
+      "Write(./.claude/**)",
+      "Write(./pipeline/**)",
+      "WebFetch",
+      "WebSearch"
+    ]
+  }
+}

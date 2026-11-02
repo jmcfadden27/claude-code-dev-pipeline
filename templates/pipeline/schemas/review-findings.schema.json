@@ -1,0 +1,32 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["lens", "verdict", "findings"],
+  "properties": {
+    "lens": {
+      "type": "string",
+      "enum": ["correctness", "security", "tests", "requirements"]
+    },
+    "verdict": {
+      "type": "string",
+      "enum": ["approve", "changes-requested"],
+      "description": "changes-requested when any finding has severity high."
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["severity", "file", "line", "title", "detail", "suggestion"],
+        "properties": {
+          "severity": { "type": "string", "enum": ["high", "medium", "low"] },
+          "file": { "type": "string" },
+          "line": { "type": "integer", "minimum": 0, "description": "0 when the finding is not tied to one line." },
+          "title": { "type": "string", "description": "The problem in under 80 characters." },
+          "detail": { "type": "string", "description": "A concrete scenario: input or state, and what goes wrong." },
+          "suggestion": { "type": "string" }
+        }
+      }
+    }
+  }
+}

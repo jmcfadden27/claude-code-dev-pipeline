@@ -1,0 +1,131 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1320" height="640" viewBox="0 0 1320 640" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif">
+  <title>AI development pipeline: plan, build, review, merge</title>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#57606a"/>
+    </marker>
+    <style>
+      .stage { fill: #f6f8fa; stroke: #d0d7de; stroke-width: 1.5; }
+      .stage-title { font-size: 15px; font-weight: 700; fill: #24292f; letter-spacing: 1.5px; }
+      .human { fill: #ddf4ff; stroke: #0969da; stroke-width: 1.5; }
+      .gate { fill: #fff8c5; stroke: #bf8700; stroke-width: 1.5; }
+      .agent { fill: #fbefff; stroke: #8250df; stroke-width: 1.5; }
+      .det { fill: #dafbe1; stroke: #1a7f37; stroke-width: 1.5; }
+      .out { fill: #ffffff; stroke: #57606a; stroke-width: 1.5; stroke-dasharray: 5 4; }
+      .t { font-size: 14px; fill: #24292f; text-anchor: middle; }
+      .ts { font-size: 12px; fill: #57606a; text-anchor: middle; }
+      .tb { font-size: 14px; font-weight: 600; fill: #24292f; text-anchor: middle; }
+      .flow { stroke: #57606a; stroke-width: 1.8; fill: none; }
+      .note { font-size: 12px; fill: #57606a; }
+    </style>
+  </defs>
+
+  <rect width="1320" height="640" fill="#ffffff"/>
+  <text x="40" y="44" font-size="22" font-weight="700" fill="#24292f">AI development pipeline</text>
+  <text x="40" y="68" font-size="14" fill="#57606a">Issue → plan → approval → build → verified PR → independent review → human merge. Every stage is started by a person.</text>
+
+  <!-- Stage panels -->
+  <rect class="stage" x="40" y="88" width="340" height="440" rx="14"/>
+  <text class="stage-title" x="58" y="114">1 · PLAN</text>
+  <rect class="stage" x="410" y="88" width="340" height="440" rx="14"/>
+  <text class="stage-title" x="428" y="114">2 · BUILD</text>
+  <rect class="stage" x="780" y="88" width="340" height="440" rx="14"/>
+  <text class="stage-title" x="798" y="114">3 · REVIEW</text>
+  <rect class="stage" x="1150" y="88" width="140" height="440" rx="14"/>
+  <text class="stage-title" x="1168" y="114">4 · MERGE</text>
+
+  <!-- PLAN -->
+  <rect class="human" x="60" y="128" width="300" height="52" rx="10"/>
+  <text class="tb" x="210" y="151">Open an issue</text>
+  <text class="ts" x="210" y="169">add label ai:plan</text>
+  <rect class="gate" x="60" y="200" width="300" height="38" rx="10"/>
+  <text class="t" x="210" y="224">Write-access check</text>
+  <rect class="agent" x="60" y="258" width="300" height="70" rx="10"/>
+  <text class="tb" x="210" y="284">Plan agent</text>
+  <text class="ts" x="210" y="303">reads the issue thread and the code</text>
+  <text class="ts" x="210" y="319">tools: Read · Glob · Grep</text>
+  <rect class="det" x="60" y="348" width="300" height="52" rx="10"/>
+  <text class="tb" x="210" y="371">Post plan comment</text>
+  <text class="ts" x="210" y="389">label ai:needs-answers or ai:plan-ready</text>
+  <rect class="out" x="60" y="420" width="300" height="52" rx="10"/>
+  <text class="t" x="210" y="443">Plan + questions on the issue</text>
+  <text class="ts" x="210" y="461">answer, then comment /plan to re-plan</text>
+  <path class="flow" d="M210,180 V198" marker-end="url(#arrow)"/>
+  <path class="flow" d="M210,238 V256" marker-end="url(#arrow)"/>
+  <path class="flow" d="M210,328 V346" marker-end="url(#arrow)"/>
+  <path class="flow" d="M210,400 V418" marker-end="url(#arrow)"/>
+  <path class="flow" d="M60,446 H50 V154 H58" marker-end="url(#arrow)"/>
+  <text class="note" x="66" y="508">loop until the agent has no questions</text>
+
+  <!-- BUILD -->
+  <rect class="human" x="430" y="128" width="300" height="52" rx="10"/>
+  <text class="tb" x="580" y="151">Approve the plan</text>
+  <text class="ts" x="580" y="169">add label ai:approved</text>
+  <rect class="gate" x="430" y="200" width="300" height="38" rx="10"/>
+  <text class="t" x="580" y="224">Write-access check · plan exists</text>
+  <rect class="agent" x="430" y="258" width="300" height="70" rx="10"/>
+  <text class="tb" x="580" y="284">Build agent</text>
+  <text class="ts" x="580" y="303">implements the plan, runs checks until green</text>
+  <text class="ts" x="580" y="319">tools: Read · Edit · Write · run-checks.sh</text>
+  <rect class="det" x="430" y="348" width="300" height="52" rx="10"/>
+  <text class="tb" x="580" y="371">Re-run checks · commit · push</text>
+  <text class="ts" x="580" y="389">the workflow verifies; the agent can't push</text>
+  <rect class="out" x="430" y="420" width="300" height="52" rx="10"/>
+  <text class="t" x="580" y="443">Pull request</text>
+  <text class="ts" x="580" y="461">"Closes #N" · summary · changes · checks</text>
+  <path class="flow" d="M580,180 V198" marker-end="url(#arrow)"/>
+  <path class="flow" d="M580,238 V256" marker-end="url(#arrow)"/>
+  <path class="flow" d="M580,328 V346" marker-end="url(#arrow)"/>
+  <path class="flow" d="M580,400 V418" marker-end="url(#arrow)"/>
+
+  <!-- REVIEW -->
+  <rect class="human" x="800" y="128" width="300" height="52" rx="10"/>
+  <text class="tb" x="950" y="151">Ask for a review</text>
+  <text class="ts" x="950" y="169">add label ai:review or comment /review</text>
+  <rect class="gate" x="800" y="200" width="300" height="38" rx="10"/>
+  <text class="t" x="950" y="224">Write-access check · no forks</text>
+  <rect class="agent" x="800" y="258" width="70" height="70" rx="10"/>
+  <text class="ts" x="835" y="290">correct-</text>
+  <text class="ts" x="835" y="306">ness</text>
+  <rect class="agent" x="877" y="258" width="70" height="70" rx="10"/>
+  <text class="ts" x="912" y="298">security</text>
+  <rect class="agent" x="954" y="258" width="70" height="70" rx="10"/>
+  <text class="ts" x="989" y="298">tests</text>
+  <rect class="agent" x="1031" y="258" width="69" height="70" rx="10"/>
+  <text class="ts" x="1065" y="290">require-</text>
+  <text class="ts" x="1065" y="306">ments</text>
+  <rect class="det" x="800" y="348" width="300" height="52" rx="10"/>
+  <text class="tb" x="950" y="371">Merge findings</text>
+  <text class="ts" x="950" y="389">dedupe · rank by severity · one comment</text>
+  <rect class="out" x="800" y="420" width="300" height="52" rx="10"/>
+  <text class="t" x="950" y="443">Review comment on the PR</text>
+  <text class="ts" x="950" y="461">advisory: never approves or merges</text>
+  <path class="flow" d="M950,180 V198" marker-end="url(#arrow)"/>
+  <path class="flow" d="M950,238 V256" marker-end="url(#arrow)"/>
+  <path class="flow" d="M950,328 V346" marker-end="url(#arrow)"/>
+  <path class="flow" d="M950,400 V418" marker-end="url(#arrow)"/>
+  <text class="note" x="800" y="508">4 independent agents in parallel, read-only</text>
+
+  <!-- MERGE -->
+  <rect class="human" x="1165" y="258" width="110" height="70" rx="10"/>
+  <text class="tb" x="1220" y="287">You review</text>
+  <text class="tb" x="1220" y="307">and merge</text>
+
+  <!-- Hand-offs between stages -->
+  <path class="flow" d="M360,446 H395 V154 H428" marker-end="url(#arrow)"/>
+  <path class="flow" d="M730,446 H765 V154 H798" marker-end="url(#arrow)"/>
+  <path class="flow" d="M1100,446 H1135 V293 H1163" marker-end="url(#arrow)"/>
+
+  <!-- Legend -->
+  <rect class="human" x="40" y="566" width="22" height="16" rx="4"/>
+  <text x="70" y="579" font-size="13" fill="#24292f">You (a label or comment)</text>
+  <rect class="gate" x="250" y="566" width="22" height="16" rx="4"/>
+  <text x="280" y="579" font-size="13" fill="#24292f">Gate</text>
+  <rect class="agent" x="350" y="566" width="22" height="16" rx="4"/>
+  <text x="380" y="579" font-size="13" fill="#24292f">Claude Code agent (least-privilege tools)</text>
+  <rect class="det" x="670" y="566" width="22" height="16" rx="4"/>
+  <text x="700" y="579" font-size="13" fill="#24292f">Deterministic workflow step (all side effects)</text>
+  <rect class="out" x="1010" y="566" width="22" height="16" rx="4"/>
+  <text x="1040" y="579" font-size="13" fill="#24292f">Result on GitHub</text>
+  <text x="40" y="616" font-size="12" fill="#57606a">Agents return structured JSON (validated against a schema). Workflow steps turn it into comments, labels, commits and pull requests.</text>
+</svg>

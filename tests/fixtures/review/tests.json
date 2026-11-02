@@ -1,0 +1,22 @@
+{
+  "lens": "tests",
+  "verdict": "approve",
+  "findings": [
+    {
+      "severity": "medium",
+      "file": "src/tasks/task-routes.ts",
+      "line": 42,
+      "title": "Overdue check compares dates in the server's time zone",
+      "detail": "No test runs the ordering with a non-UTC time zone, so the time-zone bug in the overdue check is not caught.",
+      "suggestion": "Add a test that sets TZ and checks a task due today is not overdue."
+    },
+    {
+      "severity": "low",
+      "file": "test/tasks.test.ts",
+      "line": 0,
+      "title": "Ordering test relies on insertion order for equal due dates",
+      "detail": "Two tasks with the same due date are expected in creation order, but they are created in the same millisecond on fast machines.",
+      "suggestion": "Give the two tasks explicit, different createdAt values."
+    }
+  ]
+}

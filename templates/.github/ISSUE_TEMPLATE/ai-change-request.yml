@@ -1,0 +1,38 @@
+name: Change request (AI pipeline)
+description: Describe a change for the AI pipeline to plan. A maintainer adds `ai:plan` to start.
+title: "[Change] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The pipeline plans from exactly what you write here, so be specific. It will ask about anything it can't decide.
+  - type: textarea
+    id: goal
+    attributes:
+      label: Goal
+      description: What should be different when this is done, and why?
+      placeholder: Users can set a due date on a task and see overdue tasks first.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: How will you check it works? One per line.
+      placeholder: |
+        - A task can be created and updated with an optional due date
+        - GET /tasks lists overdue tasks first
+        - Tests cover tasks with and without a due date
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Out of scope
+      description: What should this change NOT do?
+      placeholder: No reminders or notifications.
+  - type: textarea
+    id: notes
+    attributes:
+      label: Notes
+      description: Links, constraints, files you know are involved.

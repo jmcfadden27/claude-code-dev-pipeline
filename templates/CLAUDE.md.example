@@ -1,0 +1,30 @@
+# CLAUDE.md
+
+Project rules for every Claude Code session in this repository, including the AI pipeline's agents.
+Copy this file to `CLAUDE.md`, then replace the examples with your project's real rules. Keep it short: the
+agents read it on every run.
+
+## Project
+
+- What this repository is, in two sentences.
+- Main languages and frameworks.
+
+## Commands
+
+- Build and test: `./pipeline/scripts/run-checks.sh` (the same gate the pipeline uses).
+
+## Architecture rules
+
+- Example: controllers only map requests to commands; business logic lives in the application layer.
+- Example: all database access goes through repositories.
+
+## Conventions
+
+- Example: follow the patterns of the surrounding code; match its naming and comment density.
+- Example: every behaviour change comes with a test.
+
+## Never
+
+- Commit secrets, tokens or credentials.
+- Change database migrations that have already run; add a new one.
+- Edit `.github/`, `.claude/` or `pipeline/` from the pipeline.

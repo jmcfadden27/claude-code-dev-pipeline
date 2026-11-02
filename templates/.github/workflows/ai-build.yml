@@ -1,0 +1,103 @@
+# Stage 2 — Build.
+# Trigger: add the `ai:approved` label to an issue that has a plan. Adding the label is the approval.
+# The agent implements the approved plan and runs the project's checks until they pass. Then the workflow runs the
+# checks again itself, commits, pushes a branch and opens a pull request. The agent edits files and may run only
+# ./pipeline/scripts/run-checks.sh: no git, no GitHub, no network.
+name: AI Build
+
+on:
+  issues:
+    types: [labeled]
+
+concurrency:
+  group: ai-build-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    if: github.event.label.name == 'ai:approved' && !github.event.issue.pull_request
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      id-token: write
+    # GH_TOKEN is given only to the steps that call GitHub, never to the agent's step or the checks it runs, and the
+    # checkout keeps no git credentials: code the agent writes (tests included) can't reach GitHub.
+    env:
+      ISSUE_NUMBER: ${{ github.event.issue.number }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Check the approver may run the pipeline
+        run: ./pipeline/scripts/require-write-access.sh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ACTOR: ${{ github.actor }}
+          PIPELINE_ALLOWED_USERS: ${{ vars.PIPELINE_ALLOWED_USERS }}
+
+      - name: Require an approved plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue view "$ISSUE_NUMBER" --json comments \
+            --jq '[.comments[] | select(.body | startswith("<!-- ai-pipeline:plan -->"))] | length' \
+            | grep -qv '^0$' || { echo "::error::No plan on this issue yet. Add the ai:plan label first."; exit 1; }
+
+      - name: Gather the issue thread
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ./pipeline/scripts/gather-issue-context.sh
+          echo ".pipeline/" >> .git/info/exclude
+
+      # ── Your toolchain ──────────────────────────────────────────────────────────────────────────
+      # Install what pipeline/scripts/run-checks.sh needs, for example:
+      #   - uses: actions/setup-node@v4
+      #     with: { node-version: 22, cache: npm }
+      #   - uses: actions/setup-dotnet@v4
+      #     with: { dotnet-version: 8.0.x }
+      #   - uses: actions/setup-java@v4
+      #     with: { distribution: temurin, java-version: 17 }
+
+      - name: Load the build report schema
+        id: schema
+        run: echo "json=$(jq -c . pipeline/schemas/build-report.schema.json)" >> "$GITHUB_OUTPUT"
+
+      - name: Build
+        id: claude
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          settings: pipeline/claude-settings.json
+          prompt: /pipeline-build
+          claude_args: >-
+            --max-turns 120
+            --allowedTools "Read,Glob,Grep,Edit,Write,Bash(./pipeline/scripts/run-checks.sh)"
+            --disallowedTools "WebFetch,WebSearch,mcp__*"
+            --json-schema '${{ steps.schema.outputs.json }}'
+
+      # Trust, but verify: the agent's report says the checks passed; the pipeline checks for itself.
+      - name: Run the checks again
+        run: ./pipeline/scripts/run-checks.sh
+
+      - name: Open the pull request
+        run: |
+          gh auth setup-git
+          ./pipeline/scripts/open-pr.sh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPORT_JSON: ${{ steps.claude.outputs.structured_output }}
+          BASE_BRANCH: ${{ github.event.repository.default_branch }}
+
+      - name: Report a failure on the issue
+        if: failure()
+        run: ./pipeline/scripts/comment-failure.sh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          STAGE: build
+          NUMBER: ${{ github.event.issue.number }}

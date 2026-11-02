@@ -1,0 +1,25 @@
+{
+  "summary": "Add an optional due date to tasks and list overdue tasks first.",
+  "approach": "Add a nullable due_date column through a new migration, expose it on the task model and the create/update endpoints, and sort GET /tasks by overdue first, then by due date, then by creation time. Validation follows the existing TaskValidator pattern.",
+  "steps": [
+    "Add migration 0007_add_task_due_date with a nullable due_date column",
+    "Add dueDate to the Task model, the create and update request types and TaskValidator",
+    "Sort GET /tasks: overdue first, then by due date, then by creation time",
+    "Add tests for create, update, validation and ordering"
+  ],
+  "files": [
+    { "path": "migrations/0007_add_task_due_date.sql", "change": "create" },
+    { "path": "src/tasks/task.ts", "change": "modify" },
+    { "path": "src/tasks/task-validator.ts", "change": "modify" },
+    { "path": "src/tasks/task-routes.ts", "change": "modify" },
+    { "path": "test/tasks.test.ts", "change": "modify" }
+  ],
+  "risks": [
+    "Existing API clients ignore the new field; ordering of GET /tasks changes for everyone"
+  ],
+  "questions": [
+    "Should a due date in the past be rejected when a task is created, or allowed?",
+    "Should completed tasks that are past their due date still count as overdue?"
+  ],
+  "readyToBuild": false
+}

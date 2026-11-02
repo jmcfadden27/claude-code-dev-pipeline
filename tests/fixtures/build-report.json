@@ -1,0 +1,14 @@
+{
+  "status": "implemented",
+  "summary": "Tasks can now have an optional due date. GET /tasks lists open overdue tasks first, then by due date, then by creation time. Past due dates are accepted; completed tasks are never overdue.",
+  "changes": [
+    { "path": "migrations/0007_add_task_due_date.sql", "what": "Adds the nullable due_date column" },
+    { "path": "src/tasks/task.ts", "what": "dueDate on the model and the request types" },
+    { "path": "src/tasks/task-validator.ts", "what": "Validates dueDate as an ISO date" },
+    { "path": "src/tasks/task-routes.ts", "what": "New ordering for GET /tasks" },
+    { "path": "test/tasks.test.ts", "what": "9 new tests: create, update, validation, ordering" }
+  ],
+  "checks": { "ran": true, "passed": true, "notes": "Lint and 58 tests passed on the second run (first run: one ordering test failed, fixed)." },
+  "followUps": ["Show due dates in the web client"],
+  "prTitle": "Add optional due dates to tasks"
+}

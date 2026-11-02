@@ -1,0 +1,48 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["status", "summary", "changes", "checks", "followUps", "prTitle"],
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": ["implemented", "blocked"],
+      "description": "implemented: the approved plan is in the working tree and the checks pass. blocked: you stopped; explain why in summary."
+    },
+    "summary": {
+      "type": "string",
+      "description": "What you changed and why, for the pull request description (or why you are blocked)."
+    },
+    "changes": {
+      "type": "array",
+      "description": "One entry per file you changed.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "what"],
+        "properties": {
+          "path": { "type": "string" },
+          "what": { "type": "string" }
+        }
+      }
+    },
+    "checks": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ran", "passed", "notes"],
+      "properties": {
+        "ran": { "type": "boolean", "description": "You ran ./pipeline/scripts/run-checks.sh." },
+        "passed": { "type": "boolean", "description": "Its last run exited 0." },
+        "notes": { "type": "string" }
+      }
+    },
+    "followUps": {
+      "type": "array",
+      "description": "Anything deliberately left out of this change.",
+      "items": { "type": "string" }
+    },
+    "prTitle": {
+      "type": "string",
+      "description": "A short pull request title in the imperative mood."
+    }
+  }
+}
