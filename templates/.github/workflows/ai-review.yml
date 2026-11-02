@@ -1,5 +1,7 @@
 # Stage 3 — Review.
-# Trigger: add the `ai:review` label to a pull request, or comment `/review` on it.
+# Trigger: automatically after the build stage opens a pull request (ai-build.yml calls this workflow), or add the
+# `ai:review` label to a pull request / comment `/review` on it to review again.
+# (A pull request opened by a workflow doesn't start other workflows by itself, so the build calls this one directly.)
 # Four independent reviewers run in parallel, one lens each (correctness, security, tests, requirements). None sees
 # the others' findings. A final job merges their findings into one comment on the pull request. Advisory only:
 # a person reviews and merges. Reviewers can only read.
@@ -10,14 +12,21 @@ on:
     types: [labeled]
   issue_comment:
     types: [created]
+  workflow_call:
+    inputs:
+      pr:
+        description: The pull request to review (the build stage passes the one it opened).
+        type: string
+        required: true
 
 concurrency:
-  group: ai-review-${{ github.event.pull_request.number || github.event.issue.number }}
+  group: ai-review-${{ inputs.pr || github.event.pull_request.number || github.event.issue.number }}
   cancel-in-progress: true
 
 jobs:
   gate:
     if: >-
+      inputs.pr ||
       (github.event_name == 'pull_request' && github.event.label.name == 'ai:review') ||
       (github.event_name == 'issue_comment' && github.event.issue.pull_request && startsWith(github.event.comment.body, '/review'))
     runs-on: ubuntu-latest
@@ -50,7 +59,7 @@ jobs:
       - name: Resolve the pull request (same repository only)
         id: pr
         env:
-          NUMBER: ${{ github.event.pull_request.number || github.event.issue.number }}
+          NUMBER: ${{ inputs.pr || github.event.pull_request.number || github.event.issue.number }}
         run: |
           pr="$(gh pr view "$NUMBER" --json number,headRefOid,baseRefName,isCrossRepository,closingIssuesReferences)"
           if [[ "$(jq -r .isCrossRepository <<< "$pr")" == "true" ]]; then

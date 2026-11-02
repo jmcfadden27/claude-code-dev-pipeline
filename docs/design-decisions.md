@@ -2,9 +2,10 @@
 
 Short records of the choices behind the pipeline, with the alternatives considered.
 
-### 1. A person starts every stage
+### 1. A person starts the work
 
-**Decision:** labels and `/commands` start each stage; nothing runs on push or on a schedule.
+**Decision:** a label or `/plan` starts planning and a label approves the build; the review then runs automatically on
+the pull request the build opened, and can be re-run with `/review`. Nothing runs on push or on a schedule.
 **Why:** the expensive mistakes in AI-assisted development are building the wrong thing and merging something
 nobody understood. Explicit gates keep the requester in the loop at the two points that matter (plan approval and
 merge) and keep cost proportional to use.

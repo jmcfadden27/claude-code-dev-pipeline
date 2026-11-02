@@ -104,5 +104,5 @@
   <path class="flow" d="M590,222 H628" marker-end="url(#arrow)"/>
   <path class="flow" d="M648,445 H610 V280 H592" marker-end="url(#arrow)"/>
 
-  <text x="40" y="546" font-size="12" fill="#57606a">A human starts every stage and merges every change. The agent has no tool that writes to GitHub: every write is a workflow step.</text>
+  <text x="40" y="546" font-size="12" fill="#57606a">A human starts and approves the work and merges every change. The agent has no tool that writes to GitHub: every write is a workflow step.</text>
 </svg>

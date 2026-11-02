@@ -30,7 +30,7 @@ def numbered: if length == 0 then "_None._" else to_entries | map("\(.key + 1). 
   "",
   (.questions | numbered),
   "",
-  "_Answer in a comment, then comment `/plan` to update the plan._"
+  "_Reply in one comment that starts with `/plan` followed by your answers; the plan is updated from them._"
 else
   "### ✅ Ready to build",
   "",

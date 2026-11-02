@@ -23,9 +23,9 @@ Two principles shape the design:
 | The build agent weakens the quality gate | `run-checks.sh` and everything under `pipeline/`, `.github/` and `.claude/` are denied to `Edit` / `Write`; the workflow re-runs the checks itself; the tests reviewer looks for tests that can't fail | `claude-settings.json`, `ai-build.yml`, review lens |
 | The agent reports success that isn't true | The workflow re-runs the checks and confirms files changed before it opens a pull request | `ai-build.yml`, `open-pr.sh` |
 | Secrets leak into code or logs | Credentials only in GitHub secrets; `.env` files denied to `Read`; the build skill forbids writing secrets; `show_full_output` left off (public logs) | settings, skill |
-| Runaway cost | Turn limits per agent, job timeouts, concurrency groups, on-demand triggers only | workflows |
+| Runaway cost | Turn limits per agent, job timeouts, concurrency groups, runs start only from a person's label or command (the review follows a build the person approved) | workflows |
 | Shell injection from issue text | Event text reaches scripts only through environment variables, never interpolated into `run:` blocks | workflows (checked by `tests/run.sh`) |
-| An agent change merges without a person | The pipeline never approves or merges; branch protection should require a human approval | [setup](setup.md#6-recommended-repository-settings) |
+| An agent change merges without a person | The pipeline never approves or merges; branch protection should require a human approval | [setup](setup.md#10-recommended-repository-settings) |
 
 ## Permissions per job
 

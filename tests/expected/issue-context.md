@@ -22,6 +22,7 @@ Users can set a due date on a task and see overdue tasks first.
 
 ### @jim · 2026-11-02T15:20:45Z
 
+/plan
 1. Allow past dates.
 2. Only open tasks are overdue.
 

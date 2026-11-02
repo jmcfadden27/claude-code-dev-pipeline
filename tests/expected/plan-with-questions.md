@@ -31,4 +31,4 @@ Add a nullable due_date column through a new migration, expose it on the task mo
 1. Should a due date in the past be rejected when a task is created, or allowed?
 2. Should completed tasks that are past their due date still count as overdue?
 
-_Answer in a comment, then comment `/plan` to update the plan._
+_Reply in one comment that starts with `/plan` followed by your answers; the plan is updated from them._

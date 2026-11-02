@@ -1,123 +1,438 @@
-# Setup
+# Setup guide
 
-Adding the pipeline to a repository takes about 15 minutes. You need admin access to the repository, the
-[GitHub CLI](https://cli.github.com) (`gh auth login`) and [Claude Code](https://code.claude.com) installed locally.
+This guide takes a repository from nothing to a working pipeline, then through a first end-to-end test. Each step
+says what to do, where to click, and what you should see when it worked. Allow about 30 minutes, plus the first
+build.
 
-## 1. Copy the files
+**Contents**
+
+1. [Before you start](#1-before-you-start)
+2. [Copy the files into your repository](#2-copy-the-files-into-your-repository)
+3. [Configure the checks](#3-configure-the-checks)
+4. [Configure the build toolchain](#4-configure-the-build-toolchain)
+5. [Write CLAUDE.md](#5-write-claudemd)
+6. [Push to the default branch](#6-push-to-the-default-branch)
+7. [Install the Claude GitHub App](#7-install-the-claude-github-app)
+8. [Add the Claude credential](#8-add-the-claude-credential)
+9. [Create the labels](#9-create-the-labels)
+10. [Recommended repository settings](#10-recommended-repository-settings)
+11. [First test, stage by stage](#11-first-test-stage-by-stage)
+12. [Day-to-day use](#12-day-to-day-use)
+13. [Try a stage locally](#13-try-a-stage-locally)
+14. [Troubleshooting](#14-troubleshooting)
+15. [Updating and removing](#15-updating-and-removing)
+
+---
+
+## 1. Before you start
+
+You need:
+
+| What | Why | Check |
+| --- | --- | --- |
+| A GitHub repository you are an **admin** of | to add secrets, labels and the GitHub App | the repository shows a **Settings** tab |
+| **GitHub Actions** enabled for it | the pipeline is three workflows | **Settings → Actions → General**: "Allow all actions" (or allow `anthropics/*` and `actions/*`) |
+| [Claude Code](https://code.claude.com) installed locally | to create the credential (step 8) | `claude --version` |
+| A Claude **Pro / Max** subscription, or a Claude API key | the agents run on it | — |
+| [GitHub CLI](https://cli.github.com), signed in (optional) | creates the labels in one command (step 9); without it, create them on github.com | `gh auth status` |
+| `bash` and `jq` | the installer and tests | `jq --version` |
+| A build and test command that works on Linux | the build stage runs it on GitHub's Ubuntu runners | — |
+
+**How it fits together** (details in [architecture](architecture.md#how-a-stage-runs)): adding a label or posting a
+`/command` is a GitHub *event*. Each event starts one of the three workflows on a fresh GitHub machine. The workflow's
+scripts prepare the input, Claude Code does the stage's work and answers with JSON, and the scripts act on that answer
+(comment, commit, open a pull request). You start every stage; you merge every change.
+
+## 2. Copy the files into your repository
 
 ```bash
 git clone https://github.com/<you>/claude-code-dev-pipeline
 claude-code-dev-pipeline/scripts/install.sh /path/to/your-repo
 ```
 
-The installer copies `templates/` into the repository and never overwrites an existing file (pass `--force` to
-replace). It does not commit anything.
+The installer copies everything under `templates/` into the repository and prints each file:
 
-## 2. Configure the checks
+```text
+  copy    .github/workflows/ai-plan.yml
+  copy    .github/workflows/ai-build.yml
+  ...
+  skip    CLAUDE.md (exists)
+```
 
-Edit `pipeline/scripts/run-checks.sh` so it builds and tests your project and exits 0 only when everything passes:
+- It **never overwrites** a file that already exists (`--force` replaces them).
+- `CLAUDE.md` is created from `CLAUDE.md.example` only when the repository has none.
+- It does **not** commit anything.
+
+What was added:
+
+| Path | Purpose | Edit it? |
+| --- | --- | --- |
+| `.github/workflows/ai-plan.yml`, `ai-build.yml`, `ai-review.yml` | the three stages | only the toolchain section of `ai-build.yml` (step 4) |
+| `.github/ISSUE_TEMPLATE/ai-change-request.yml` | the change-request form | optional |
+| `.claude/skills/pipeline-*/SKILL.md` | each stage's instructions to Claude | optional |
+| `pipeline/scripts/run-checks.sh` | your build and test gate | **yes** (step 3) |
+| `pipeline/scripts/*` (everything else), `pipeline/schemas/*`, `pipeline/claude-settings.json` | the pipeline's machinery | no |
+
+## 3. Configure the checks
+
+`pipeline/scripts/run-checks.sh` is the quality gate. The build agent may run **only** this command (it can't run
+anything else in the shell), and the build workflow runs it again itself before it opens a pull request. Make it:
+
+- build and test the whole project;
+- exit `0` only when everything passes;
+- run without prompts (no interactive input, no watch mode).
+
+Replace the template body with your commands. Examples:
 
 ```bash
+# Node
 npm ci && npm run lint && npm test
+
+# .NET
+dotnet build -warnaserror && dotnet test --no-build
+
+# Android
+./gradlew --no-daemon testDebugUnitTest
+
+# Python
+pip install -r requirements.txt && pytest -q
 ```
 
-This script is the quality gate. The build agent may run only this command, and the build workflow runs it again
-itself before it opens a pull request.
+Several projects in one repository? Run each in turn with `set -euo pipefail` at the top, so the first failure stops
+the script.
 
-Then add the matching toolchain to the marked step in `.github/workflows/ai-build.yml`, for example:
+**Check:** run it locally from the repository root. It should pass on a clean checkout:
+
+```bash
+./pipeline/scripts/run-checks.sh; echo "exit=$?"
+```
+
+## 4. Configure the build toolchain
+
+GitHub's Ubuntu runners include common tools, but you should pin the versions your checks need. Open
+`.github/workflows/ai-build.yml` and replace the comment block marked **Your toolchain** with setup steps:
 
 ```yaml
-- uses: actions/setup-node@v4
-  with: { node-version: 22, cache: npm }
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
 ```
+
+| Stack | Step |
+| --- | --- |
+| Node | `actions/setup-node@v4` with `node-version` |
+| .NET | `actions/setup-dotnet@v4` with `dotnet-version: 8.0.x` |
+| Java / Android | `actions/setup-java@v4` (`distribution: temurin`, `java-version`) and `gradle/actions/setup-gradle@v4`; the runner already has the Android SDK |
+| Python | `actions/setup-python@v5` with `python-version` |
+
+Only the build stage needs this. Plan and review only read code.
 
 ### Private packages and cloud credentials
 
-If the build needs credentials (a private package feed such as AWS CodeArtifact, Azure Artifacts or GitHub
+If your build needs credentials (a private package feed such as AWS CodeArtifact, Azure Artifacts or GitHub
 Packages), get them in the toolchain section and keep them away from the agent:
 
-1. Authenticate the usual way for your CI (for example OIDC with `aws-actions/configure-aws-credentials`).
-2. Write any config that holds a token (a `NuGet.Config`, `.npmrc`, `pip.conf`) to `$RUNNER_TEMP`, outside the
-   workspace the agent reads, and pass its path to `run-checks.sh` through `$GITHUB_ENV`.
-3. Blank the cloud credentials before the agent's step, so neither the agent nor the code it runs gets them:
+1. Authenticate the usual way for your CI, for example OIDC with `aws-actions/configure-aws-credentials`. The cloud
+   side must trust this repository; for AWS that means the IAM role's trust policy allows
+   `repo:<owner>/<repo>:ref:refs/heads/<default-branch>` (labels and issue comments run on the default branch).
+   Some organizations customise this subject to include IDs (`repo:<owner>@<owner-id>/<repo>@<repo-id>:…`); copy the
+   format of the subjects your trust policy already lists. A repository's ID is in its page source on github.com
+   (search for `repository_id`).
+2. Write any config that holds a token (`NuGet.Config`, `.npmrc`, `pip.conf`) to `$RUNNER_TEMP`, outside the workspace
+   the agent reads, and pass its path to `run-checks.sh` through `$GITHUB_ENV`.
+3. Blank the cloud credentials before the agent's step, so neither the agent nor the code it runs gets them.
 
 ```yaml
-- name: Prepare the package feed
-  run: |
-    token="$(aws codeartifact get-authorization-token --domain my-domain --query authorizationToken --output text)"
-    # ... write "${RUNNER_TEMP}/NuGet.Config" with the token ...
-    echo "PACKAGE_CONFIG=${RUNNER_TEMP}/NuGet.Config" >> "$GITHUB_ENV"
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ vars.AWS_REGION }}
 
-- name: Drop the cloud credentials
-  run: |
-    { echo "AWS_ACCESS_KEY_ID="; echo "AWS_SECRET_ACCESS_KEY="; echo "AWS_SESSION_TOKEN="; } >> "$GITHUB_ENV"
+      - name: Prepare the package feed
+        run: |
+          token="$(aws codeartifact get-authorization-token --domain my-domain --query authorizationToken --output text)"
+          # ... write "${RUNNER_TEMP}/NuGet.Config" with the token ...
+          echo "PACKAGE_CONFIG=${RUNNER_TEMP}/NuGet.Config" >> "$GITHUB_ENV"
+
+      - name: Drop the cloud credentials
+        run: |
+          { echo "AWS_ACCESS_KEY_ID="; echo "AWS_SECRET_ACCESS_KEY="; echo "AWS_SESSION_TOKEN="; } >> "$GITHUB_ENV"
 ```
 
-`run-checks.sh` then uses the config when it is set, for example
-`dotnet restore ${PACKAGE_CONFIG:+--configfile "$PACKAGE_CONFIG"}`, and falls back to the developer's own setup when
-run locally.
+`run-checks.sh` then uses the config when it's set and falls back to the developer's own setup locally:
 
-## 3. Write CLAUDE.md
+```bash
+dotnet restore ${PACKAGE_CONFIG:+--configfile "$PACKAGE_CONFIG"}
+```
 
-`CLAUDE.md` holds the project's rules: architecture, conventions and things never to do. Every agent reads it on
-every run, so keep it short and specific. The installer creates it from `CLAUDE.md.example` when the repository has
-none.
+Add the secret and variable the steps use (here `AWS_ROLE_TO_ASSUME`, `AWS_REGION`) as in step 8.
 
-## 4. Connect Claude
+## 5. Write CLAUDE.md
 
-1. Install the [Claude GitHub App](https://github.com/apps/claude) on the repository.
-2. Create a credential and store it as a repository secret (**Settings → Secrets and variables → Actions**):
+`CLAUDE.md` holds your project's rules: architecture, conventions, commit format and things never to do. Claude Code
+loads it automatically in every session, so every pipeline agent follows it, and so do your own interactive sessions.
 
-   | Plan | Create it with | Secret name |
-   | --- | --- | --- |
-   | Claude Pro / Max subscription | `claude setup-token` (prints a long-lived token, shown once) | `CLAUDE_CODE_OAUTH_TOKEN` |
-   | Claude API (Console) | an API key from [platform.claude.com](https://platform.claude.com) | `ANTHROPIC_API_KEY` |
+- Start from the generated file (or the example in this repository) and replace the examples with real rules.
+- Keep it short and specific; agents read it on every run.
+- It's written for developers too. Steps an agent can't do in the pipeline (deploying, running the app, using a
+  database) are fine to keep: the build agent skips them and lists anything a person should do after merging.
 
-   The workflows use `claude_code_oauth_token`. For an API key, change that line in the three workflows to
-   `anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}`.
+You don't need to mention the pipeline or its skills in it. Each workflow names its skill directly.
 
-   A subscription token belongs to the person who created it, and runs count against their plan. For a team, use an
-   API key.
+## 6. Push to the default branch
 
-Alternatively, run `/install-github-app` in Claude Code, which installs the app and stores the secret for you.
+```bash
+git add .github .claude pipeline CLAUDE.md
+git commit -m "ci(pipeline): add the ai plan, build and review pipeline"
+git push
+```
 
-## 5. Create the labels
+The files must be on the repository's **default branch** (shown under **Settings → General → Default branch**).
+GitHub runs workflows started by labels and issue comments **only from the default branch**, and the Actions tab
+lists only workflows found there. Files pushed to a feature branch do nothing yet. If your work is on a feature
+branch, merge it, or move just the pipeline commit:
+
+```bash
+git switch <default-branch> && git pull
+git cherry-pick <pipeline-commit-hash>
+git push
+```
+
+**Check:** the repository's **Actions** tab lists **AI Plan**, **AI Build** and **AI Review**.
+
+## 7. Install the Claude GitHub App
+
+A *GitHub App* is GitHub's name for an outside service you allow to work with your repositories. Nothing is
+downloaded; it's a permission, like a key card. The Claude GitHub App is Anthropic's: when a workflow reaches its
+Claude step, `claude-code-action` uses it to prove to GitHub that Claude may work in this repository. Without it,
+that step fails.
+
+1. Signed in to GitHub, open <https://github.com/apps/claude>.
+2. Click **Install** (or **Configure** if it's installed elsewhere already).
+3. Pick the account that owns the repository (your user or an organization; an organization owner may need to
+   approve).
+4. Under **Repository access** choose **Only select repositories** and pick this repository.
+5. Review the permissions and click **Install**.
+
+GitHub shows one permission set shared by all of Claude's GitHub features and doesn't allow accepting part of it.
+Each workflow's `permissions:` block limits what a run can actually do.
+
+**Check:** the repository's **Settings → GitHub Apps** lists **Claude**.
+
+**Managing the connection later:**
+
+| Where | What you manage there |
+| --- | --- |
+| GitHub: repository **Settings → GitHub Apps**, or your account / organization **Settings → Applications → Installed GitHub Apps** | which repositories the app is installed on, its permissions, uninstalling |
+| Claude: [claude.ai → Customize → Connectors → GitHub](https://claude.ai/customize/connectors/yours/id/integration-github) | your Claude account's GitHub integration |
+
+Alternative: running `/install-github-app` inside Claude Code installs the app and stores the credential (step 8)
+for you. It also offers to add Anthropic's own example workflows; you don't need those.
+
+## 8. Add the Claude credential
+
+**Two separate sign-ins.** The pipeline needs access in two directions, and each is set up once:
+
+| Direction | What grants it | Set up in |
+| --- | --- | --- |
+| Claude may work in the repository | the Claude GitHub App, installed on the repository | step 7 |
+| The work runs on (and is billed to) a Claude account | a token for that account, stored as a repository secret | this step |
+
+GitHub can't sign in to Claude as you, so you give it a **token**: a long code that works like a spare key to your
+Claude account. Every pipeline run uses it, and its usage counts against that account's plan, just as if you were
+using Claude Code yourself.
+
+**Which Claude account?** The one Claude Code on your computer is signed in to. Check it with `/status` inside
+Claude Code. If it's the wrong account, sign out and in again (`/logout`, then `claude`) before creating the token.
+
+**With a Claude Pro / Max subscription** (what the templates use):
+
+```bash
+claude setup-token
+```
+
+A browser opens to sign in, then the terminal prints a long-lived token. It's shown once: copy it now.
+
+Then on GitHub: **Settings → Secrets and variables → Actions → New repository secret**
+
+| Field | Value |
+| --- | --- |
+| Name | `CLAUDE_CODE_OAUTH_TOKEN` |
+| Secret | the token |
+
+What to know about this token:
+
+- **It is you.** It belongs to the account that created it; pipeline runs count against that plan's usage limits,
+  shared with that person's own Claude use.
+- **It lasts about a year.** When it expires, the Claude step fails with an authentication error. Renew it: run
+  `claude setup-token` again and update the secret (**Settings → Secrets and variables → Actions →
+  `CLAUDE_CODE_OAUTH_TOKEN` → Update**). Put a reminder in your calendar.
+- **Treat it like a password.** Store it only as a GitHub secret. If it's ever exposed, create a new one the same way
+  and replace the secret straight away.
+- **Removing access:** delete the secret, and the pipeline can no longer use your account.
+
+**With a Claude API key** (better for a team): create a key at [platform.claude.com](https://platform.claude.com), add it
+as the secret `ANTHROPIC_API_KEY`, and in each of the three workflows replace
+
+```yaml
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+```
+
+with
+
+```yaml
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+```
+
+**Check:** **Settings → Secrets and variables → Actions** lists the secret (its value is never shown again).
+
+## 9. Create the labels
+
+A label must exist in the repository before it can be added to an issue. Create the five below once, either way:
+
+**On github.com:** **Issues → Labels → New label**, once per label. Only the names must match exactly; colors and
+descriptions are up to you.
+
+**Or with the GitHub CLI:**
 
 ```bash
 claude-code-dev-pipeline/scripts/create-labels.sh <owner>/<repo>
 ```
 
-| Label | Meaning |
+| Label | Added by | Meaning |
+| --- | --- | --- |
+| `ai:plan` | you | plan this issue |
+| `ai:needs-answers` | the pipeline | the plan has questions for you |
+| `ai:plan-ready` | the pipeline | the plan has no open questions |
+| `ai:approved` | you | build the latest plan (this is your approval) |
+| `ai:review` | you | review this pull request again (the first review runs automatically after the build) |
+
+**Check:** **Issues → Labels** shows all five.
+
+## 10. Recommended repository settings
+
+- **Branch protection** on the default branch (**Settings → Branches** or **Rules**): require a pull request and at
+  least one approval. The pipeline never merges; this makes sure nothing else does either.
+  - Free for public repositories; private repositories need a paid GitHub plan (Pro, Team or Enterprise). Without
+    it, the pipeline still works: it never merges, so merging stays a person's choice.
+  - Working alone? GitHub doesn't let you approve your own pull requests, so a required approval would block yours.
+    Allow administrators to bypass the rule, or require a pull request without an approval. The pipeline's pull
+    requests are opened by `github-actions[bot]`, so you can approve those.
+- **Allow-list (optional):** **Settings → Secrets and variables → Actions → Variables → New repository variable**,
+  name `PIPELINE_ALLOWED_USERS`, value a comma-separated list of GitHub usernames. Only they can then start a stage,
+  on top of the write-access check.
+- **Public repositories:** read issues from people outside the project before you label them. Their comments never
+  reach the agent, but the issue body you choose to plan does.
+
+## 11. First test, stage by stage
+
+Use something small and safe the first time, such as adding one unit test, so you see the whole loop before trusting
+it with a feature. If a step doesn't behave as described, see [Troubleshooting](#14-troubleshooting).
+
+### 11.1 Plan (about 2–5 minutes)
+
+1. **Issues → New issue → Change request (AI pipeline)**. Fill in:
+   - **Goal:** for example "Add a unit test for the date formatter's handling of empty input".
+   - **Acceptance criteria:** "A new test covers empty input; no production code changes".
+2. Add the label **`ai:plan`**.
+3. Open the **Actions** tab: an **AI Plan** run appears. Click it to watch the steps; the **Plan** step is Claude.
+4. When it finishes, the issue has a **🗺️ Implementation plan** comment and the label `ai:plan-ready` or
+   `ai:needs-answers`.
+5. If it asked questions: reply in **one comment that starts with `/plan`**, with your answers on the following lines.
+   `/plan` is this pipeline's command (not a GitHub feature): a comment starting with it re-runs the plan stage, and
+   the agent reads the whole thread, your answers included. A new
+   plan appears that uses your answers. Repeat until `ai:plan-ready`.
+
+### 11.2 Build (about 10–30 minutes)
+
+1. Add the label **`ai:approved`** to the issue.
+2. **Actions** tab: an **AI Build** run appears. The **Build** step is Claude implementing the plan and running your
+   checks until they pass; it's the longest step. Then **Run the checks again** (the pipeline verifying for itself)
+   and **Open the pull request**.
+3. When it finishes:
+   - a pull request titled in the commit format, for example `test(dates): cover empty input in the date formatter`;
+   - its description lists the changes, the checks and any follow-ups;
+   - the issue has a **🔧 Built the approved plan** comment linking to it.
+4. If the agent couldn't finish, the issue gets a **⚠️ The build stage failed** comment and nothing was committed.
+   The run's **Build** step log explains why.
+
+> Your repository's own CI workflows won't start on this pull request by themselves: GitHub doesn't start workflows
+> from pushes made with the workflow token. The build stage already ran your checks; re-run CI manually if you need
+> it. See [design decisions](design-decisions.md#known-limits).
+
+### 11.3 Review (about 5 minutes)
+
+1. Nothing to do: the build workflow starts the review as soon as it opens the pull request (the **Build** run gets a
+   **review** part). To review again later, for example after pushing changes, comment **`/review`** or add the
+   **`ai:review`** label.
+2. **Actions** tab: **AI Review** runs a **gate** job, four **review** jobs in parallel (correctness, security, tests,
+   requirements) and a **summarize** job.
+3. The pull request gets one **🔍 AI review** comment: a verdict per lens and the findings ranked by severity.
+4. After changing the pull request, comment **`/review`** again; the same comment is updated.
+
+### 11.4 Merge
+
+Read the pull request and the review, then merge it yourself (or close it). Do anything listed under follow-ups, such
+as applying a database migration.
+
+## 12. Day-to-day use
+
+| You want to | Do this |
 | --- | --- |
-| `ai:plan` | Ask for a plan (you add it) |
-| `ai:needs-answers` | The plan has questions (the pipeline adds it) |
-| `ai:plan-ready` | The plan has no open questions (the pipeline adds it) |
-| `ai:approved` | Build the latest plan (you add it) |
-| `ai:review` | Review this pull request (you add it) |
+| Ask for a change | open an issue with the form, add `ai:plan` |
+| Answer the plan's questions | one comment starting with `/plan`, answers on the next lines |
+| Change your mind about the plan | one comment starting with `/plan`, then what should change |
+| Approve and build | add `ai:approved` |
+| Re-run a stage | remove the label and add it again, or comment `/plan` / `/review` |
+| Review a pull request | automatic after the build; to review again, comment `/review` or add `ai:review` |
+| See what happened | the **Actions** tab, and the comments on the issue / pull request |
 
-## 6. Recommended repository settings
+## 13. Try a stage locally
 
-- **Branch protection** on the default branch: require a pull request and at least one human approval. The pipeline
-  never merges, and this makes sure nothing else does either.
-- **Optional allow-list**: set the repository variable `PIPELINE_ALLOWED_USERS` (comma separated) to limit who may
-  run the pipeline, on top of the write-access check.
+The skills live in the repository, so you can run a stage in your own terminal to see what the agent would do, with
+no GitHub involved:
 
-## 7. First run
+1. Write the request to `.pipeline/issue.md` (the file the workflows generate), for example:
 
-1. Commit and push the copied files to the default branch.
-2. Open an issue with the **Change request (AI pipeline)** form.
-3. Add the `ai:plan` label and watch the **Actions** tab. The plan appears as a comment on the issue.
-4. Answer any questions in a comment, then comment `/plan`.
-5. When the plan is ready, add `ai:approved`. A pull request appears when the build passes.
-6. Add `ai:review` to the pull request for the AI review, then review and merge it yourself.
+   ```markdown
+   # Issue #0: Add a unit test for empty input
+   ## Request
+   Add a unit test for the date formatter's handling of empty input. No production changes.
+   ```
 
-## Troubleshooting
+2. Run `claude` in the repository root and type `/pipeline-plan`.
 
-| Symptom | Check |
+Use this to try changes to a skill's instructions before they reach the pipeline. Delete `.pipeline/` afterwards.
+
+## 14. Troubleshooting
+
+| Symptom | Cause and fix |
 | --- | --- |
-| Nothing happens after adding a label | The workflow files are on the default branch; Actions are enabled; the label name matches exactly. |
-| "does not have write access" | The person who added the label or comment needs write access (and must be in `PIPELINE_ALLOWED_USERS` if set). |
-| "is not configured for this repository yet" | `pipeline/scripts/run-checks.sh` still has the template body. |
-| Build reports `blocked` | Read the failure comment on the issue: the agent explains why it stopped. Clarify on the issue and re-plan. |
-| The repository's own CI doesn't run on the pipeline's PR | Expected: pushes made with `GITHUB_TOKEN` don't start other workflows. The build stage runs the checks itself; push an empty commit or re-run CI manually if you need it. See [design decisions](design-decisions.md#known-limits). |
-| Authentication errors | Test the token locally with `claude`; tokens from `claude setup-token` expire after a year. |
+| Nothing appears in Actions after adding a label | The workflow files aren't on the default branch (step 6); Actions are disabled (step 1); or the label name doesn't match exactly. |
+| The run fails at **Check the requester may run the pipeline** | The person who added the label or wrote the command lacks write access, or isn't in `PIPELINE_ALLOWED_USERS`. |
+| The run fails in the **Plan / Build / Review** (Claude) step with an authentication error | The secret is missing or misnamed (step 8), the token expired (`claude setup-token` again), or the Claude GitHub App isn't installed on this repository (step 7). Test the token locally with `claude`. |
+| **Require an approved plan** fails | The issue has no plan comment yet. Add `ai:plan` first. |
+| **is not configured for this repository yet** | `pipeline/scripts/run-checks.sh` still has the template body (step 3). |
+| The build's Claude step stops at the turn limit | The change is too big for one run. Split the issue, or raise `--max-turns` in `ai-build.yml`. |
+| Build reports **blocked** | The agent explains why in the failure comment and the run log. Clarify in a comment starting with `/plan`, then approve again. |
+| **Run the checks again** fails after the agent said they passed | The checks aren't deterministic (flaky tests, network). Fix `run-checks.sh` or the tests; nothing was committed. |
+| A toolchain or package restore step fails | A missing setup step or credential (step 4). For cloud credentials, check the cloud side trusts this repository and branch. |
+| **The commit header is not in the Conventional Commits format** | The agent's commit fields didn't form a valid header. Re-run the build; if it repeats, open an issue on this repository. |
+| Your CI doesn't run on the pipeline's pull request | Expected (see 11.2). |
+| A review lens failed | The summary still posts the other lenses and a ⚠️ comment links to the run. Comment `/review` to retry. |
+
+To read a run's details: **Actions** → the run → the failed job → expand the failed step.
+
+## 15. Updating and removing
+
+**Updating** to a newer version of this repository: pull it, then compare its `templates/` with your repository.
+Copy over the files you haven't customised (everything except `run-checks.sh`, the toolchain section of
+`ai-build.yml` and your `CLAUDE.md`), run your checks, and commit.
+
+**Pausing:** disable the workflows under **Actions** → workflow → **⋯ → Disable workflow**.
+
+**Removing:** delete `.github/workflows/ai-*.yml`, `.github/ISSUE_TEMPLATE/ai-change-request.yml`,
+`.claude/skills/pipeline-*` and `pipeline/`; delete the `CLAUDE_CODE_OAUTH_TOKEN` (or `ANTHROPIC_API_KEY`) secret
+and the `ai:*` labels; and uninstall the Claude GitHub App from the repository if nothing else uses it.

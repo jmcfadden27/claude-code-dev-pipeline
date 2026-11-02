@@ -14,7 +14,7 @@
       "author": { "login": "jim" },
       "authorAssociation": "OWNER",
       "createdAt": "2026-11-02T15:20:45Z",
-      "body": "1. Allow past dates.\n2. Only open tasks are overdue."
+      "body": "/plan\n1. Allow past dates.\n2. Only open tasks are overdue."
     },
     {
       "author": { "login": "drive-by-user" },

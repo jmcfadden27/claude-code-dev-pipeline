@@ -19,7 +19,7 @@ review. This pipeline is built around those concerns rather than around the agen
 | Concern | How the pipeline handles it |
 | --- | --- |
 | Building the wrong thing | A **plan stage** studies the code and posts a plan with questions on the issue. Nothing is built until a person approves it. |
-| Losing control | **A person starts every stage** (a label or a `/command`) and **merges every change**. Agents never approve or merge. |
+| Losing control | **A person starts the work** (a label or a `/command` to plan, a label to approve the build) and **merges every change**. The review runs automatically on the pull request the build opens. Agents never approve or merge. |
 | Agents with too much power | **Least privilege per stage**: the planner and reviewers can only read; the builder can edit files and run one script. No agent has git, GitHub or network tools. |
 | "It works on my machine" | **Trust, but verify**: the builder runs the checks until they pass, then the workflow runs them again itself before it opens a pull request. |
 | Unstructured agent output | Every agent returns **JSON validated against a schema**. Deterministic workflow steps turn it into comments, labels, commits and pull requests. |
@@ -42,7 +42,7 @@ sequenceDiagram
     WF->>AG: /pipeline-plan (read-only tools)
     AG-->>WF: plan.json (summary, steps, files, risks, questions)
     WF->>GH: Plan comment + ai:needs-answers
-    You->>GH: Answer, comment /plan
+    You->>GH: Comment "/plan" + answers
     GH->>WF: issue_comment
     WF->>AG: /pipeline-plan with the answers
     AG-->>WF: plan.json (no questions)
@@ -53,7 +53,7 @@ sequenceDiagram
     AG-->>WF: build-report.json
     WF->>WF: Run checks again, commit, push branch
     WF->>GH: Pull request "Closes #N"
-    You->>GH: Add label ai:review
+    WF->>WF: Review stage starts automatically
     par Four independent reviewers
         WF->>AG: /pipeline-review correctness
         WF->>AG: /pipeline-review security
@@ -69,7 +69,7 @@ sequenceDiagram
 | --- | --- | --- | --- | --- |
 | **Plan** | label `ai:plan` or comment `/plan` | read the code and the issue thread | posts the plan, labels the issue | plan + questions on the issue |
 | **Build** | label `ai:approved` | edit files, run `run-checks.sh` | re-runs checks, commits, pushes, opens the PR | pull request that closes the issue |
-| **Review** | label `ai:review` or comment `/review` | read the diff and the code (×4 lenses) | merges and ranks findings, posts one comment | review comment on the PR |
+| **Review** | automatically after the build; label `ai:review` or comment `/review` to run again | read the diff and the code (×4 lenses) | merges and ranks findings, posts one comment | review comment on the PR |
 | **Merge** | you | — | — | merged change |
 
 The issue thread is the pipeline's memory. Agents keep nothing between runs: each run reads the request, earlier
@@ -152,17 +152,20 @@ git clone https://github.com/<you>/claude-code-dev-pipeline
 claude-code-dev-pipeline/scripts/install.sh /path/to/your-repo
 ```
 
-Then follow [docs/setup.md](docs/setup.md): set your build and test command in `pipeline/scripts/run-checks.sh`,
-install the Claude GitHub App, add a `CLAUDE_CODE_OAUTH_TOKEN` secret (from `claude setup-token`, using a Claude
-Pro / Max subscription) or an `ANTHROPIC_API_KEY`, create the labels, and open an issue.
+**📘 Follow the [setup guide](docs/setup.md)** for the full step-by-step: configuring your checks and toolchain,
+private package feeds, pushing to the default branch, installing the Claude GitHub App, adding the credential
+(`claude setup-token` with a Claude Pro / Max subscription, or an API key), creating the labels, and a first test of
+each stage with what you should see, plus troubleshooting.
 
 ## Cost and limits
 
-- **On demand only.** Nothing runs on push or on a schedule; every run starts from a person's label or command.
+- **Started by a person.** Nothing runs on push or on a schedule: planning and building start from a person's label
+  or command, and the review runs once on each pull request the build opens.
 - **Bounded runs.** Each agent has a turn limit (`--max-turns`) and each job a timeout; concurrency groups cancel
   superseded plan and review runs.
 - **Subscription or API.** With a subscription token, runs count against that person's plan limits, shared with
-  their interactive use. The multi-agent review is the most expensive stage, so it only runs when asked for.
+  their interactive use. The multi-agent review is the most expensive stage (four agents); it runs once per build, and again only when asked for.
+  To make it on-demand only, remove the `review` job at the end of `ai-build.yml`.
 - **GitHub Actions minutes** are used by every job.
 
 ## Testing

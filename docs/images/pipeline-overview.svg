@@ -22,7 +22,7 @@
 
   <rect width="1320" height="640" fill="#ffffff"/>
   <text x="40" y="44" font-size="22" font-weight="700" fill="#24292f">AI development pipeline</text>
-  <text x="40" y="68" font-size="14" fill="#57606a">Issue → plan → approval → build → verified PR → independent review → human merge. Every stage is started by a person.</text>
+  <text x="40" y="68" font-size="14" fill="#57606a">Issue → plan → approval → build → verified PR → independent review → human merge. You start and approve; the review runs on its own.</text>
 
   <!-- Stage panels -->
   <rect class="stage" x="40" y="88" width="340" height="440" rx="14"/>
@@ -49,7 +49,7 @@
   <text class="ts" x="210" y="389">label ai:needs-answers or ai:plan-ready</text>
   <rect class="out" x="60" y="420" width="300" height="52" rx="10"/>
   <text class="t" x="210" y="443">Plan + questions on the issue</text>
-  <text class="ts" x="210" y="461">answer, then comment /plan to re-plan</text>
+  <text class="ts" x="210" y="461">reply /plan + answers to re-plan</text>
   <path class="flow" d="M210,180 V198" marker-end="url(#arrow)"/>
   <path class="flow" d="M210,238 V256" marker-end="url(#arrow)"/>
   <path class="flow" d="M210,328 V346" marker-end="url(#arrow)"/>
@@ -80,8 +80,8 @@
 
   <!-- REVIEW -->
   <rect class="human" x="800" y="128" width="300" height="52" rx="10"/>
-  <text class="tb" x="950" y="151">Ask for a review</text>
-  <text class="ts" x="950" y="169">add label ai:review or comment /review</text>
+  <text class="tb" x="950" y="151">Starts automatically</text>
+  <text class="ts" x="950" y="169">after the build · /review to run again</text>
   <rect class="gate" x="800" y="200" width="300" height="38" rx="10"/>
   <text class="t" x="950" y="224">Write-access check · no forks</text>
   <rect class="agent" x="800" y="258" width="70" height="70" rx="10"/>

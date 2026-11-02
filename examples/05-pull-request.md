@@ -25,4 +25,4 @@ Tasks can now have an optional due date. GET /tasks lists open overdue tasks fir
 - Show due dates in the web client
 
 ---
-_Opened by the AI pipeline from the approved plan on #12. Add the `ai:review` label or comment `/review` for an AI review. A person reviews and merges._
+_Opened by the AI pipeline from the approved plan on #12. The AI review runs automatically; comment `/review` to run it again. A person reviews and merges._

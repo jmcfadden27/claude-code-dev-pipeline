@@ -22,6 +22,38 @@ The same four parts repeat in every stage:
    list, deny rules, a turn limit and a JSON schema for its answer.
 4. **Act**: jq renders the JSON to markdown and the workflow posts, labels, commits or opens the pull request.
 
+## How a stage runs
+
+Using the build stage as the example; plan and review work the same way.
+
+1. **An event starts the workflow.** Everything on GitHub is an event: adding a label, posting a comment. Each
+   workflow file says which events it listens to (`on:`) and filters them (`if:`). Adding `ai:approved` to an issue
+   is an `issues.labeled` event; `ai-build.yml` matches it, `ai-plan.yml` sees a different label and skips.
+2. **A fresh runner runs the job's steps in order.** GitHub starts a clean Linux machine, checks out the repository
+   and runs each step top to bottom. A step is a shell command (`run:`) or a ready-made action (`uses:`). When one
+   fails the rest are skipped, except the `if: failure()` step that reports the failure on the issue.
+3. **Scripts prepare the agent's input.** The gate (`require-write-access.sh`) and context
+   (`gather-issue-context.sh` → `.pipeline/issue.md`) steps are plain bash, the same every time.
+4. **The Claude step runs the agent.** `anthropics/claude-code-action` installs Claude Code on the runner, signs in
+   with the repository secret, and runs it non-interactively in the checkout with `prompt: /pipeline-build`. Claude
+   Code loads `CLAUDE.md` (the project's rules) and the named skill (the stage's instructions), works with only the
+   tools in `--allowedTools`, and must finish with JSON matching the schema given in `--json-schema`. The action
+   validates it and exposes it as the step output `structured_output`.
+5. **Scripts act on the answer.** Later steps receive that JSON through an environment variable
+   (`REPORT_JSON: ${{ steps.claude.outputs.structured_output }}`) and do the work with side effects: `open-pr.sh`
+   checks `status`, builds the commit message, commits, pushes and opens the pull request.
+
+In one line: **event → workflow `if:` → scripts prepare files → Claude reads them and returns JSON in a fixed
+shape → scripts act on the JSON.** Claude never calls GitHub; it reads and edits files on the runner and answers.
+
+| | Plan | Build | Review |
+| --- | --- | --- | --- |
+| Trigger | `ai:plan` / `/plan` | `ai:approved` | automatic after the build; `ai:review` / `/review` |
+| Skill | `/pipeline-plan` | `/pipeline-build` | `/pipeline-review <lens>` ×4 in parallel |
+| Claude can | read | read, edit, run `run-checks.sh` | read |
+| Returns | `plan.schema.json` | `build-report.schema.json` | `review-findings.schema.json` |
+| Scripts then | post the plan, set labels | re-run checks, commit, open the PR | merge the 4 results into one comment |
+
 ## Issue lifecycle
 
 ```mermaid
@@ -29,13 +61,13 @@ stateDiagram-v2
     [*] --> Requested: issue opened
     Requested --> Planning: ai:plan
     Planning --> NeedsAnswers: plan has questions
-    NeedsAnswers --> Planning: answers + /plan
+    NeedsAnswers --> Planning: /plan + answers
     Planning --> PlanReady: no questions
     PlanReady --> Planning: change of mind + /plan
     PlanReady --> Building: ai:approved
     Building --> PlanReady: blocked (agent explains why)
     Building --> PullRequest: checks pass twice
-    PullRequest --> Reviewing: ai:review or /review
+    PullRequest --> Reviewing: automatic after the build, or ai:review / /review
     Reviewing --> PullRequest: findings posted
     PullRequest --> [*]: a person merges
 ```
@@ -82,7 +114,7 @@ checks fail, the workflow stops and comments on the issue instead of opening a p
 
 | | |
 | --- | --- |
-| Trigger | `pull_request.labeled` with `ai:review`, or a pull request comment starting with `/review` |
+| Trigger | called by the build workflow right after it opens the pull request (`workflow_call`); or `pull_request.labeled` with `ai:review`, or a pull request comment starting with `/review`, to run again |
 | Jobs | `gate` → `review` (matrix of 4 lenses, `fail-fast: false`) → `summarize` |
 | Agent | `/pipeline-review <lens>` · tools `Read, Glob, Grep` · 40 turns · 30-minute job each |
 | Output | [`review-findings.schema.json`](../templates/pipeline/schemas/review-findings.schema.json): lens, verdict, findings (severity, file, line, title, detail, suggestion) |

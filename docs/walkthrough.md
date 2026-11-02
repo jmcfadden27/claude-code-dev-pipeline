@@ -8,13 +8,13 @@ the agents' JSON. The same JSON is used as test fixtures, so these examples are 
 | 1 | Requester | Opens issue #12 with the change-request form, adds `ai:plan` | [01-issue.md](../examples/01-issue.md) |
 | 2 | Plan agent | Reads the issue and the code; returns a plan with two questions | [02-plan-with-questions.md](../examples/02-plan-with-questions.md) |
 | 3 | Pipeline | Posts the plan, labels the issue `ai:needs-answers` | |
-| 4 | Requester | Answers the questions, comments `/plan` | [03-answers.md](../examples/03-answers.md) |
+| 4 | Requester | Answers in one comment starting with `/plan` | [03-answers.md](../examples/03-answers.md) |
 | 5 | Plan agent | Re-plans with the answers; no questions left | [04-plan-ready.md](../examples/04-plan-ready.md) |
 | 6 | Pipeline | Posts the plan, labels the issue `ai:plan-ready` | |
 | 7 | Requester | Adds `ai:approved` | |
 | 8 | Build agent | Implements the plan; one ordering test fails, it fixes it; checks pass | |
 | 9 | Pipeline | Runs the checks again, commits to `ai/issue-12-…`, opens the pull request | [05-pull-request.md](../examples/05-pull-request.md) |
-| 10 | Requester | Adds `ai:review` to the pull request | |
+| 10 | Pipeline | Starts the review stage on the new pull request automatically | |
 | 11 | 4 review agents | Review in parallel; correctness and tests independently find the same time-zone bug | |
 | 12 | Pipeline | Merges the findings into one comment, ranked by severity | [06-review.md](../examples/06-review.md) |
 | 13 | Requester | Fixes the bug (or re-plans), re-runs `/review`, merges | |
@@ -30,4 +30,4 @@ the agents' JSON. The same JSON is used as test fixtures, so these examples are 
   again before opening it.
 - **Independent reviewers agreeing is a signal** (step 11). The time-zone bug is listed once, at the highest
   severity either reviewer gave it, with both lenses named.
-- **A person decided at every gate**: plan approval (step 7), review (step 10) and merge (step 13).
+- **A person decided at every gate**: asking for a plan (step 1), approving it (step 7) and merging (step 13).

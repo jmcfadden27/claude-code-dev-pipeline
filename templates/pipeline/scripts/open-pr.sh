@@ -47,5 +47,7 @@ body="$(jq -r --arg issue "$ISSUE_NUMBER" -f "$here/render-pr-body.jq" <<< "$REP
 url="$(gh pr create --base "$base" --head "$branch" --title "$title" --body "$body")"
 
 gh issue comment "$ISSUE_NUMBER" --body "<!-- ai-pipeline:built -->
-🔧 Built the approved plan: ${url}"
+🔧 Built the approved plan: ${url}. The AI review starts now."
 echo "Opened ${url}"
+# The pull request number, for the review stage that runs next.
+if [[ -n "${GITHUB_OUTPUT:-}" ]]; then echo "pr=${url##*/}" >> "$GITHUB_OUTPUT"; fi

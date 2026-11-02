@@ -1,11 +1,10 @@
 # The requester answers
 
-_A comment on issue #12 from its owner, followed by a second comment `/plan`, which re-runs the plan stage._
-
-> 1. Allow past dates.
-> 2. Only open tasks are overdue.
+_One comment on issue #12 from its owner. Starting it with `/plan` re-runs the plan stage._
 
 > /plan
+> 1. Allow past dates.
+> 2. Only open tasks are overdue.
 
 The plan stage reads the whole thread again — the request, its first plan and these answers — and posts an
 updated plan with no questions ([04-plan-ready.md](04-plan-ready.md)).

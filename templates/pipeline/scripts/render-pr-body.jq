@@ -21,4 +21,4 @@
   "## Follow-ups (not in this PR)", "", (.followUps | map("- " + .) | join("\n")), ""
 else empty end),
 "---",
-"_Opened by the AI pipeline from the approved plan on #\($issue). Add the `ai:review` label or comment `/review` for an AI review. A person reviews and merges._"
+"_Opened by the AI pipeline from the approved plan on #\($issue). The AI review runs automatically; comment `/review` to run it again. A person reviews and merges._"
