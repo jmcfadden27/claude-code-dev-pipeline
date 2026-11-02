@@ -31,6 +31,32 @@ Then add the matching toolchain to the marked step in `.github/workflows/ai-buil
   with: { node-version: 22, cache: npm }
 ```
 
+### Private packages and cloud credentials
+
+If the build needs credentials (a private package feed such as AWS CodeArtifact, Azure Artifacts or GitHub
+Packages), get them in the toolchain section and keep them away from the agent:
+
+1. Authenticate the usual way for your CI (for example OIDC with `aws-actions/configure-aws-credentials`).
+2. Write any config that holds a token (a `NuGet.Config`, `.npmrc`, `pip.conf`) to `$RUNNER_TEMP`, outside the
+   workspace the agent reads, and pass its path to `run-checks.sh` through `$GITHUB_ENV`.
+3. Blank the cloud credentials before the agent's step, so neither the agent nor the code it runs gets them:
+
+```yaml
+- name: Prepare the package feed
+  run: |
+    token="$(aws codeartifact get-authorization-token --domain my-domain --query authorizationToken --output text)"
+    # ... write "${RUNNER_TEMP}/NuGet.Config" with the token ...
+    echo "PACKAGE_CONFIG=${RUNNER_TEMP}/NuGet.Config" >> "$GITHUB_ENV"
+
+- name: Drop the cloud credentials
+  run: |
+    { echo "AWS_ACCESS_KEY_ID="; echo "AWS_SECRET_ACCESS_KEY="; echo "AWS_SESSION_TOKEN="; } >> "$GITHUB_ENV"
+```
+
+`run-checks.sh` then uses the config when it is set, for example
+`dotnet restore ${PACKAGE_CONFIG:+--configfile "$PACKAGE_CONFIG"}`, and falls back to the developer's own setup when
+run locally.
+
 ## 3. Write CLAUDE.md
 
 `CLAUDE.md` holds the project's rules: architecture, conventions and things never to do. Every agent reads it on

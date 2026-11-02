@@ -56,7 +56,8 @@ jobs:
           echo ".pipeline/" >> .git/info/exclude
 
       # ── Your toolchain ──────────────────────────────────────────────────────────────────────────
-      # Install what pipeline/scripts/run-checks.sh needs, for example:
+      # Install what pipeline/scripts/run-checks.sh needs. For private package feeds or cloud credentials, see
+      # docs/setup.md "Private packages and cloud credentials". For example:
       #   - uses: actions/setup-node@v4
       #     with: { node-version: 22, cache: npm }
       #   - uses: actions/setup-dotnet@v4

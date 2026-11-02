@@ -25,6 +25,10 @@ that plan in the working tree.
 4. You cannot use git or GitHub, and you don't need to: the workflow commits your changes, pushes a branch and opens
    the pull request after it runs the checks again itself.
 5. Never write secrets, tokens or credentials into files. Don't touch `.github/`, `.claude/` or `pipeline/`.
+6. `CLAUDE.md` is written for developers too. Follow its rules for the code, but skip any step that needs something
+   you don't have here (deploying, installing on a device, running the app, touching a database or the cloud,
+   committing): `run-checks.sh` is the verification in this pipeline. Mention a skipped step in `followUps` when a
+   person should do it after merging (for example, applying a new database migration).
 
 ## When to stop
 
