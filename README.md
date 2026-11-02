@@ -78,6 +78,47 @@ plans, answers and approvals from the thread, so every decision is visible and a
 More detail: [architecture](docs/architecture.md) · [security model](docs/security.md) ·
 [design decisions](docs/design-decisions.md) · [worked example](docs/walkthrough.md)
 
+## Commit messages
+
+Every commit and pull request title the pipeline creates follows
+[Conventional Commits](https://www.conventionalcommits.org):
+
+```text
+type(scope)!: summary
+
+Implements the approved plan on #12.
+
+BREAKING CHANGE: what breaks and what to do about it     (breaking changes only)
+Closes #12
+```
+
+| Part | Rule | Example |
+| --- | --- | --- |
+| `type` | One of the types below | `feat` |
+| `scope` | The area changed, lowercase | `api`, `android`, `infra` |
+| `!` | Only for a breaking change, together with a `BREAKING CHANGE:` footer | `feat(api)!:` |
+| `summary` | Imperative, lowercase start, no trailing period, at most 72 characters | `add optional due dates to tasks` |
+
+| Type | Use for |
+| --- | --- |
+| `feat` | A new capability |
+| `fix` | A bug fix |
+| `refactor` | A code change without a behaviour change |
+| `perf` | A performance improvement |
+| `test` | Tests only |
+| `docs` | Documentation only |
+| `ci` | CI pipeline or workflow changes |
+| `chore` | Maintenance and tooling |
+
+Examples: `feat(tasks): add optional due dates to tasks` · `fix(api)!: reject past due dates` ·
+`ci(infra): include the documents stack in plan and apply`
+
+**How it is enforced:** the build agent doesn't write the message. It returns the type, scope, summary and
+breaking-change details as separate fields, which the schema constrains (the type must be one from the table). The
+workflow assembles the message ([`commit-message.jq`](templates/pipeline/scripts/commit-message.jq)), checks the
+header against the format, and stops instead of committing if it doesn't match. The same rules are in
+[`CLAUDE.md.example`](templates/CLAUDE.md.example), so interactive Claude Code sessions follow them too.
+
 ## Repository layout
 
 ```text
