@@ -1,8 +1,8 @@
 # Claude Code Dev Pipeline
 
 A reference implementation of an **AI development pipeline on GitHub**: a person describes a change in an issue, and
-[Claude Code](https://code.claude.com) agents plan it, ask questions, build it, test it, open a pull request and
-review it — with a person approving every stage and merging every change.
+[Claude Code](https://code.claude.com) agents plan it, ask questions, build it, test it, open a pull request, review
+it and fix what the review finds — with a person approving the plan and merging every change.
 
 ![Pipeline overview](docs/images/pipeline-overview.svg)
 
@@ -23,6 +23,8 @@ review. This pipeline is built around those concerns rather than around the agen
 | Agents with too much power | **Least privilege per stage**: the planner and reviewers can only read; the builder can edit files and run one script. No agent has git, GitHub or network tools. |
 | "It works on my machine" | **Trust, but verify**: the builder runs the checks until they pass, then the workflow runs them again itself before it opens a pull request. |
 | Unstructured agent output | Every agent returns **JSON validated against a schema**. Deterministic workflow steps turn it into comments, labels, commits and pull requests. |
+| Review findings that never get fixed | **`/fix` on the pull request**: the agent brings the branch up to date (resolving conflicts), fixes the review's findings or what you ask, re-checks and pushes to the same pull request, and the review runs again. |
+| Waiting blind / runaway runs | Every stage posts **⏳ started** with a link to its run; **`/cancel`** stops any stage; turn limits and timeouts are adjustable per repository. |
 | One reviewer's blind spots | **Four independent reviewers** (correctness, security, tests, requirements) run in parallel without seeing each other's findings; their results are merged and ranked. |
 | Prompt injection from strangers | Only collaborators can trigger the pipeline, comments from anyone else are withheld from the agents, fork pull requests are never reviewed, and review prompts always come from the base branch. |
 
@@ -62,15 +64,25 @@ sequenceDiagram
     end
     AG-->>WF: findings.json ×4
     WF->>GH: One merged review comment
+    You->>GH: Comment "/fix" (+ what to change)
+    GH->>WF: issue_comment on the PR
+    WF->>WF: Merge the latest base into the branch
+    WF->>AG: /pipeline-fix (resolve conflicts, fix findings, run checks)
+    AG-->>WF: build-report.json
+    WF->>WF: Run checks again, commit, push to the same PR
+    WF->>WF: Review stage runs again
     You->>GH: Review and merge
 ```
 
 | Stage | Started by | Agent can | Workflow does | Result |
 | --- | --- | --- | --- | --- |
 | **Plan** | label `ai:plan` or comment `/plan` | read the code and the issue thread | posts the plan, labels the issue | plan + questions on the issue |
-| **Build** | label `ai:approved` | edit files, run `run-checks.sh` | re-runs checks, commits, pushes, opens the PR | pull request that closes the issue |
-| **Review** | automatically after the build; label `ai:review` or comment `/review` to run again | read the diff and the code (×4 lenses) | merges and ranks findings, posts one comment | review comment on the PR |
+| **Build** | label `ai:approved` or comment `/approve` | edit files, run `run-checks.sh` | re-runs checks, commits, pushes, opens the PR | pull request that closes the issue |
+| **Review** | automatically after a build or fix; comment `/review` to run again | read the diff and the code (×4 lenses) | merges and ranks findings, posts one comment | review comment on the PR |
+| **Fix** | comment `/fix` (+ what to change) on the PR | edit files, run `run-checks.sh` | merges the base first, re-runs checks, pushes to the same PR | new commit on the PR, then a new review |
 | **Merge** | you | — | — | merged change |
+
+Any stage can be stopped with `/cancel`, and each posts **⏳ started** with a link to its run.
 
 The issue thread is the pipeline's memory. Agents keep nothing between runs: each run reads the request, earlier
 plans, answers and approvals from the thread, so every decision is visible and auditable on GitHub.
@@ -125,18 +137,20 @@ header against the format, and stops instead of committing if it doesn't match. 
 templates/                         copied into your repository by scripts/install.sh
 ├── .github/workflows/
 │   ├── ai-plan.yml                stage 1: plan
-│   ├── ai-build.yml               stage 2: build, verify, open the PR
-│   └── ai-review.yml              stage 3: 4 parallel reviewers + merged comment
+│   ├── ai-build.yml               stage 2: build (open the PR) and fix (update it); then the review
+│   ├── ai-review.yml              stage 3: 4 parallel reviewers + merged comment
+│   └── ai-cancel.yml              /cancel: stop a running stage
 ├── .github/ISSUE_TEMPLATE/
 │   └── ai-change-request.yml      structured change request (goal, acceptance criteria, scope)
 ├── .claude/skills/
 │   ├── pipeline-plan/SKILL.md     agent prompt for each stage
 │   ├── pipeline-build/SKILL.md
+│   ├── pipeline-fix/SKILL.md
 │   └── pipeline-review/SKILL.md
 ├── pipeline/
 │   ├── claude-settings.json       deny rules for every agent run
 │   ├── schemas/                   JSON contracts for agent output
-│   └── scripts/                   deterministic glue (bash + jq): gate, context, render, post, open PR
+│   └── scripts/                   deterministic glue (bash + jq): gate, context, render, post, open PR, merge, push fix
 └── CLAUDE.md.example              project rules every agent follows
 scripts/
 ├── install.sh                     copy the templates into a repository (never overwrites)
@@ -160,12 +174,13 @@ each stage with what you should see, plus troubleshooting.
 ## Cost and limits
 
 - **Started by a person.** Nothing runs on push or on a schedule: planning and building start from a person's label
-  or command, and the review runs once on each pull request the build opens.
+  or command; the review runs after each build or fix; `/fix` runs only when asked.
 - **Bounded runs.** Each agent has a turn limit (`--max-turns`) and each job a timeout; concurrency groups cancel
   superseded plan and review runs.
 - **Subscription or API.** With a subscription token, runs count against that person's plan limits, shared with
   their interactive use. The multi-agent review is the most expensive stage (four agents); it runs once per build, and again only when asked for.
   To make it on-demand only, remove the `review` job at the end of `ai-build.yml`.
+- **Model per stage.** Claude Opus by default; switch any stage with a repository variable (see setup).
 - **GitHub Actions minutes** are used by every job.
 
 ## Testing

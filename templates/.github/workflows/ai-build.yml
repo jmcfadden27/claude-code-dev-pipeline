@@ -1,61 +1,134 @@
-# Stage 2 — Build.
-# Trigger: add the `ai:approved` label to an issue that has a plan. Adding the label is the approval.
-# The agent implements the approved plan and runs the project's checks until they pass. Then the workflow runs the
-# checks again itself, commits, pushes a branch and opens a pull request, then runs the review stage on it. The agent edits files and may run only
-# ./pipeline/scripts/run-checks.sh: no git, no GitHub, no network.
+# Stage 2 — Build, and Fix.
+#
+# Build: add the `ai:approved` label to an issue that has a plan, or comment `/approve` on it. The agent implements the
+#   approved plan; the workflow runs the checks again itself, commits, pushes a new branch and opens a pull request.
+# Fix:   comment `/fix` on a pipeline pull request, optionally followed by what to change. The workflow brings the
+#   branch up to date with its base, the agent resolves any conflicts and fixes the review's findings and your
+#   comments, the workflow runs the checks again and pushes to the same pull request.
+# Either way the review stage then runs on the pull request.
+#
+# The agent edits files and may run only ./pipeline/scripts/run-checks.sh: no git, no GitHub, no network.
 name: AI Build
 
 on:
   issues:
     types: [labeled]
+  issue_comment:
+    types: [created]
 
+# One build or fix at a time per issue / pull request. `/cancel` stops a running one (ai-cancel.yml).
+# Only real commands from collaborators join the issue's / pull request's group (groups are resolved before any job
+# runs); every other comment gets a throwaway group, so it can't queue behind or replace a build.
 concurrency:
-  group: ai-build-${{ github.event.issue.number }}
+  group: >-
+    ai-build-${{ (
+      (github.event_name == 'issues' && github.event.label.name == 'ai:approved' && !github.event.issue.pull_request) ||
+      (github.event_name == 'issue_comment' && contains(fromJSON('["OWNER","MEMBER","COLLABORATOR","CONTRIBUTOR"]'), github.event.comment.author_association) && (
+        (!github.event.issue.pull_request && startsWith(github.event.comment.body, '/approve')) ||
+        (github.event.issue.pull_request && startsWith(github.event.comment.body, '/fix'))))
+    ) && github.event.issue.number || format('skip-{0}', github.run_id) }}
   cancel-in-progress: false
 
 jobs:
   build:
-    if: github.event.label.name == 'ai:approved' && !github.event.issue.pull_request
+    if: >-
+      (github.event_name == 'issues' && github.event.label.name == 'ai:approved' && !github.event.issue.pull_request) ||
+      (github.event_name == 'issue_comment' && !github.event.issue.pull_request && startsWith(github.event.comment.body, '/approve')) ||
+      (github.event_name == 'issue_comment' && github.event.issue.pull_request && startsWith(github.event.comment.body, '/fix'))
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: ${{ fromJSON(vars.PIPELINE_TIMEOUT_BUILD || '120') }}
     outputs:
-      pr: ${{ steps.open_pr.outputs.pr }}
+      pr: ${{ steps.open_pr.outputs.pr || steps.push_fix.outputs.pr }}
     permissions:
       contents: write
       pull-requests: write
       issues: write
       id-token: write
     # GH_TOKEN is given only to the steps that call GitHub, never to the agent's step or the checks it runs, and the
-    # checkout keeps no git credentials: code the agent writes (tests included) can't reach GitHub.
+    # checkouts keep no git credentials: code the agent writes (tests included) can't reach GitHub.
     env:
-      ISSUE_NUMBER: ${{ github.event.issue.number }}
+      NUMBER: ${{ github.event.issue.number }}
     steps:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 1
           persist-credentials: false
 
-      - name: Check the approver may run the pipeline
+      - name: Check the requester may run the pipeline
         run: ./pipeline/scripts/require-write-access.sh
         env:
           GH_TOKEN: ${{ github.token }}
           ACTOR: ${{ github.actor }}
           PIPELINE_ALLOWED_USERS: ${{ vars.PIPELINE_ALLOWED_USERS }}
 
-      - name: Require an approved plan
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh issue view "$ISSUE_NUMBER" --json comments \
-            --jq '[.comments[] | select(.body | startswith("<!-- ai-pipeline:plan -->"))] | length' \
-            | grep -qv '^0$' || { echo "::error::No plan on this issue yet. Add the ai:plan label first."; exit 1; }
+      # The pipeline's own scripts and settings always come from the default branch, never from a pull request's
+      # branch (which may be older, or changed). Only run-checks.sh, the project's own checks, runs from the code.
+      - name: Keep the pipeline's files from the default branch
+        run: mkdir -p "$RUNNER_TEMP/base" && cp -r pipeline "$RUNNER_TEMP/base/"
 
-      - name: Gather the issue thread
+      - name: Work out what to do
+        id: target
         env:
           GH_TOKEN: ${{ github.token }}
+          IS_PR: ${{ github.event.issue.pull_request != null }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
-          ./pipeline/scripts/gather-issue-context.sh
+          if [[ "$IS_PR" == "true" ]]; then
+            pr="$(gh pr view "$NUMBER" --repo "$GITHUB_REPOSITORY" \
+              --json number,headRefName,baseRefName,isCrossRepository,closingIssuesReferences)"
+            if [[ "$(jq -r .isCrossRepository <<< "$pr")" == "true" ]]; then
+              echo "::error::Pull requests from forks are not changed by the pipeline."
+              exit 1
+            fi
+            {
+              echo "mode=fix"
+              echo "pr=$NUMBER"
+              echo "ref=$(jq -r .headRefName <<< "$pr")"
+              echo "base=$(jq -r .baseRefName <<< "$pr")"
+              echo "issue=$(jq -r '.closingIssuesReferences[0].number // empty' <<< "$pr")"
+            } >> "$GITHUB_OUTPUT"
+          else
+            gh issue view "$NUMBER" --repo "$GITHUB_REPOSITORY" --json comments \
+              --jq '[.comments[] | select(.body | startswith("<!-- ai-pipeline:plan -->"))] | length' \
+              | grep -qv '^0$' || { echo "::error::No plan on this issue yet. Add the ai:plan label first."; exit 1; }
+            { echo "mode=build"; echo "ref=$DEFAULT_BRANCH"; echo "base=$DEFAULT_BRANCH"; echo "issue=$NUMBER"; } >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Say it started
+        run: "$RUNNER_TEMP/base/pipeline/scripts/post-started.sh"
+        env:
+          GH_TOKEN: ${{ github.token }}
+          STAGE: ${{ steps.target.outputs.mode == 'fix' && 'Fix' || 'Build' }}
+
+      # The code to work on: the default branch for a build, the pull request's branch for a fix.
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ steps.target.outputs.ref }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Gather the context
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MODE: ${{ steps.target.outputs.mode }}
+          ISSUE_NUMBER: ${{ steps.target.outputs.issue }}
+          PR_NUMBER: ${{ steps.target.outputs.pr }}
+          BASE_REF: ${{ steps.target.outputs.base }}
+        run: |
+          mkdir -p .pipeline
           echo ".pipeline/" >> .git/info/exclude
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          scripts="$RUNNER_TEMP/base/pipeline/scripts"
+          if [[ -n "$ISSUE_NUMBER" ]]; then "$scripts/gather-issue-context.sh"; fi
+          if [[ "$MODE" == "fix" ]]; then
+            "$scripts/merge-base.sh"
+            "$scripts/gather-pr-context.sh"
+            git diff "origin/${BASE_REF}...HEAD" > .pipeline/diff.patch
+            # claude-code-action replaces these files with the default branch's copies on pull request events; keep the
+            # branch's own (after the merge) so the fix commit never reverts them (push-fix.sh puts them back).
+            "$scripts/snapshot-config.sh" save
+          fi
 
       # ── Your toolchain ──────────────────────────────────────────────────────────────────────────
       # Install what pipeline/scripts/run-checks.sh needs. For private package feeds or cloud credentials, see
@@ -67,19 +140,20 @@ jobs:
       #   - uses: actions/setup-java@v4
       #     with: { distribution: temurin, java-version: 17 }
 
-      - name: Load the build report schema
+      - name: Load the report schema
         id: schema
         run: echo "json=$(jq -c . pipeline/schemas/build-report.schema.json)" >> "$GITHUB_OUTPUT"
 
-      - name: Build
+      - name: Build or fix
         id: claude
         uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          settings: pipeline/claude-settings.json
-          prompt: /pipeline-build
+          settings: ${{ runner.temp }}/base/pipeline/claude-settings.json
+          prompt: ${{ steps.target.outputs.mode == 'fix' && '/pipeline-fix' || '/pipeline-build' }}
           claude_args: >-
-            --max-turns 120
+            --model ${{ vars.PIPELINE_MODEL_BUILD || 'claude-opus-5-5' }}
+            --max-turns ${{ vars.PIPELINE_MAX_TURNS_BUILD || '200' }}
             --allowedTools "Read,Glob,Grep,Edit,Write,Bash(./pipeline/scripts/run-checks.sh)"
             --disallowedTools "WebFetch,WebSearch,mcp__*"
             --json-schema '${{ steps.schema.outputs.json }}'
@@ -89,25 +163,40 @@ jobs:
         run: ./pipeline/scripts/run-checks.sh
 
       - name: Open the pull request
+        if: steps.target.outputs.mode == 'build'
         id: open_pr
-        run: |
-          gh auth setup-git
-          ./pipeline/scripts/open-pr.sh
+        run: "$RUNNER_TEMP/base/pipeline/scripts/open-pr.sh"
         env:
           GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ steps.target.outputs.issue }}
           REPORT_JSON: ${{ steps.claude.outputs.structured_output }}
-          BASE_BRANCH: ${{ github.event.repository.default_branch }}
+          BASE_BRANCH: ${{ steps.target.outputs.base }}
 
-      - name: Report a failure on the issue
-        if: failure()
-        run: ./pipeline/scripts/comment-failure.sh
+      - name: Push the fix to the pull request
+        if: steps.target.outputs.mode == 'fix'
+        id: push_fix
+        run: "$RUNNER_TEMP/base/pipeline/scripts/push-fix.sh"
         env:
           GH_TOKEN: ${{ github.token }}
-          STAGE: build
-          NUMBER: ${{ github.event.issue.number }}
+          PR_NUMBER: ${{ steps.target.outputs.pr }}
+          HEAD_REF: ${{ steps.target.outputs.ref }}
+          BASE_REF: ${{ steps.target.outputs.base }}
+          ISSUE_NUMBER: ${{ steps.target.outputs.issue }}
+          REPORT_JSON: ${{ steps.claude.outputs.structured_output }}
 
-  # Review the new pull request straight away (stage 3). Calling the workflow directly is needed because a pull request
-  # opened with the workflow token doesn't start other workflows by itself.
+      - name: Report a failure
+        if: failure() || cancelled()
+        run: |
+          scripts="$RUNNER_TEMP/base/pipeline/scripts"
+          [[ -x "$scripts/comment-failure.sh" ]] || scripts=./pipeline/scripts
+          "$scripts/comment-failure.sh"
+        env:
+          GH_TOKEN: ${{ github.token }}
+          STAGE: ${{ steps.target.outputs.mode == 'fix' && 'fix' || 'build' }}
+          REPORT_JSON: ${{ steps.claude.outputs.structured_output }}
+
+  # Review the pull request straight away (stage 3). Calling the workflow directly is needed because a pull request
+  # opened or pushed with the workflow token doesn't start other workflows by itself.
   review:
     needs: build
     if: needs.build.outputs.pr != ''

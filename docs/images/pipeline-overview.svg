@@ -22,7 +22,7 @@
 
   <rect width="1320" height="640" fill="#ffffff"/>
   <text x="40" y="44" font-size="22" font-weight="700" fill="#24292f">AI development pipeline</text>
-  <text x="40" y="68" font-size="14" fill="#57606a">Issue → plan → approval → build → verified PR → independent review → human merge. You start and approve; the review runs on its own.</text>
+  <text x="40" y="68" font-size="14" fill="#57606a">Issue → plan → approval → build → verified PR → independent review → /fix → human merge. You start, approve and merge.</text>
 
   <!-- Stage panels -->
   <rect class="stage" x="40" y="88" width="340" height="440" rx="14"/>
@@ -60,7 +60,7 @@
   <!-- BUILD -->
   <rect class="human" x="430" y="128" width="300" height="52" rx="10"/>
   <text class="tb" x="580" y="151">Approve the plan</text>
-  <text class="ts" x="580" y="169">add label ai:approved</text>
+  <text class="ts" x="580" y="169">add label ai:approved or comment /approve</text>
   <rect class="gate" x="430" y="200" width="300" height="38" rx="10"/>
   <text class="t" x="580" y="224">Write-access check · plan exists</text>
   <rect class="agent" x="430" y="258" width="300" height="70" rx="10"/>
@@ -81,7 +81,7 @@
   <!-- REVIEW -->
   <rect class="human" x="800" y="128" width="300" height="52" rx="10"/>
   <text class="tb" x="950" y="151">Starts automatically</text>
-  <text class="ts" x="950" y="169">after the build · /review to run again</text>
+  <text class="ts" x="950" y="169">after a build or fix · /review to run again</text>
   <rect class="gate" x="800" y="200" width="300" height="38" rx="10"/>
   <text class="t" x="950" y="224">Write-access check · no forks</text>
   <rect class="agent" x="800" y="258" width="70" height="70" rx="10"/>
@@ -99,12 +99,12 @@
   <text class="ts" x="950" y="389">dedupe · rank by severity · one comment</text>
   <rect class="out" x="800" y="420" width="300" height="52" rx="10"/>
   <text class="t" x="950" y="443">Review comment on the PR</text>
-  <text class="ts" x="950" y="461">advisory: never approves or merges</text>
+  <text class="ts" x="950" y="461">/fix → fixed on the same PR, reviewed again</text>
   <path class="flow" d="M950,180 V198" marker-end="url(#arrow)"/>
   <path class="flow" d="M950,238 V256" marker-end="url(#arrow)"/>
   <path class="flow" d="M950,328 V346" marker-end="url(#arrow)"/>
   <path class="flow" d="M950,400 V418" marker-end="url(#arrow)"/>
-  <text class="note" x="800" y="508">4 independent agents in parallel, read-only</text>
+  <text class="note" x="800" y="508">4 agents in parallel, read-only · /cancel stops any stage</text>
 
   <!-- MERGE -->
   <rect class="human" x="1165" y="258" width="110" height="70" rx="10"/>

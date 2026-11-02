@@ -17,7 +17,10 @@ the agents' JSON. The same JSON is used as test fixtures, so these examples are 
 | 10 | Pipeline | Starts the review stage on the new pull request automatically | |
 | 11 | 4 review agents | Review in parallel; correctness and tests independently find the same time-zone bug | |
 | 12 | Pipeline | Merges the findings into one comment, ranked by severity | [06-review.md](../examples/06-review.md) |
-| 13 | Requester | Fixes the bug (or re-plans), re-runs `/review`, merges | |
+| 13 | Requester | Comments `/fix compare dates in UTC, and add the time-zone test` on the pull request | [07-fix.md](../examples/07-fix.md) |
+| 14 | Fix agent | Merges the latest base, fixes the comparison, adds the test; checks pass | |
+| 15 | Pipeline | Runs the checks again, pushes to the same pull request, comments what changed; the review runs again with no findings | [07-fix.md](../examples/07-fix.md) |
+| 16 | Requester | Merges | |
 
 ## What to notice
 
@@ -30,4 +33,7 @@ the agents' JSON. The same JSON is used as test fixtures, so these examples are 
   again before opening it.
 - **Independent reviewers agreeing is a signal** (step 11). The time-zone bug is listed once, at the highest
   severity either reviewer gave it, with both lenses named.
-- **A person decided at every gate**: asking for a plan (step 1), approving it (step 7) and merging (step 13).
+- **Findings were fixed where they were found** (steps 13–15). No new plan or new pull request: `/fix` changed the
+  same pull request and the review ran again.
+- **A person decided at every gate**: asking for a plan (step 1), approving it (step 7), asking for the fix (step 13)
+  and merging (step 16).

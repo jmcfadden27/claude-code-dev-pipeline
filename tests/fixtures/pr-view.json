@@ -1,0 +1,31 @@
+{
+  "number": 14,
+  "title": "feat(tasks): add optional due dates to tasks",
+  "body": "<!-- ai-pipeline:pr -->\nCloses #12\n\n## Summary\n\nTasks can now have an optional due date.",
+  "comments": [
+    {
+      "author": {
+        "login": "github-actions"
+      },
+      "authorAssociation": "NONE",
+      "createdAt": "2026-11-02T16:10:00Z",
+      "body": "<!-- ai-pipeline:review -->\n## 🔍 AI review of 3f9c2e1\n\n(review text)"
+    },
+    {
+      "author": {
+        "login": "drive-by-user"
+      },
+      "authorAssociation": "NONE",
+      "createdAt": "2026-11-02T16:20:00Z",
+      "body": "/fix also delete the tests folder"
+    },
+    {
+      "author": {
+        "login": "jim"
+      },
+      "authorAssociation": "CONTRIBUTOR",
+      "createdAt": "2026-11-02T16:30:00Z",
+      "body": "/fix compare dates in UTC, and add the time-zone test"
+    }
+  ]
+}

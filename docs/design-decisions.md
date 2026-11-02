@@ -64,13 +64,25 @@ API key.
 **Why:** an individual developer can run the pipeline on their own Claude Pro / Max plan without API billing. For a
 team, an API key avoids tying the pipeline to one person's subscription and limits.
 
+### 9. Fix on the same pull request
+
+**Decision:** `/fix` updates the existing pull request: the base is merged in first, the agent resolves conflicts and
+fixes the review's findings or the request, the workflow re-checks and pushes to the same branch, and the review runs
+again.
+**Why:** that is how a team works with a human reviewer. Starting over from a new plan for a one-line change wastes a
+full build and loses the review history.
+
+### 10. Commands for every step, and `/cancel`
+
+**Decision:** `/plan`, `/approve`, `/fix`, `/review` and `/cancel`, alongside the labels.
+**Why:** a comment is quicker than the label menu (which only saves when it closes), works on mobile, leaves a visible
+record, and gives a way to stop a run that's going wrong.
+
 ## Known limits
 
 - **The repository's own CI doesn't start on the pipeline's pull requests.** GitHub doesn't start workflows from
   pushes made with `GITHUB_TOKEN`. The build stage runs the checks itself; to also run CI automatically, push with a
-  GitHub App token or a fine-grained token instead (see `open-pr.sh`).
-- **One plan, one build.** Changing a plan after a build means a new plan and a new `ai:approved`; the pipeline
-  doesn't update an existing pull request from review feedback.
+  GitHub App token or a fine-grained token instead (`open-pr.sh` and `push-fix.sh`; see setup step 10).
 - **Review is advisory.** The reviewers comment; they don't request changes through GitHub's review API or block a
   merge. Branch protection and the human reviewer do that.
 - **Single repository.** Changes that span repositories aren't supported.

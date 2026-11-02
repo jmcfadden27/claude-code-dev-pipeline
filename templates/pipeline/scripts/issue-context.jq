@@ -2,8 +2,10 @@
 # Untrusted authors' text is withheld (see gather-issue-context.sh).
 
 def trusted_association: . as $a | ["OWNER", "MEMBER", "COLLABORATOR"] | index($a) != null;
+# $trusted: logins verified to have write access (trusted-authors.sh).
 def trusted_comment:
-  (.authorAssociation | trusted_association)
+  (.author.login as $l | $trusted | index($l) != null)
+  or (.authorAssociation | trusted_association)
   or (.author.login | IN("github-actions", "github-actions[bot]"));
 
 "# Issue #\(.number): \(.title)",

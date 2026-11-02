@@ -15,7 +15,14 @@
       "Write(./.claude/**)",
       "Write(./pipeline/**)",
       "WebFetch",
-      "WebSearch"
+      "WebSearch",
+      "Edit(./CLAUDE.md)",
+      "Write(./CLAUDE.md)",
+      "Read(//home/runner/work/_temp/secrets/**)"
     ]
+  },
+  "env": {
+    "BASH_DEFAULT_TIMEOUT_MS": "1800000",
+    "BASH_MAX_TIMEOUT_MS": "1800000"
   }
 }

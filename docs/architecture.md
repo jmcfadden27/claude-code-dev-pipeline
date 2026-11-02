@@ -46,13 +46,16 @@ Using the build stage as the example; plan and review work the same way.
 In one line: **event → workflow `if:` → scripts prepare files → Claude reads them and returns JSON in a fixed
 shape → scripts act on the JSON.** Claude never calls GitHub; it reads and edits files on the runner and answers.
 
-| | Plan | Build | Review |
-| --- | --- | --- | --- |
-| Trigger | `ai:plan` / `/plan` | `ai:approved` | automatic after the build; `ai:review` / `/review` |
-| Skill | `/pipeline-plan` | `/pipeline-build` | `/pipeline-review <lens>` ×4 in parallel |
-| Claude can | read | read, edit, run `run-checks.sh` | read |
-| Returns | `plan.schema.json` | `build-report.schema.json` | `review-findings.schema.json` |
-| Scripts then | post the plan, set labels | re-run checks, commit, open the PR | merge the 4 results into one comment |
+| | Plan | Build | Fix | Review |
+| --- | --- | --- | --- | --- |
+| Trigger | `ai:plan` / `/plan` | `ai:approved` / `/approve` | `/fix` on the PR | automatic after a build or fix; `/review` |
+| Workflow | `ai-plan.yml` | `ai-build.yml` | `ai-build.yml` (fix mode) | `ai-review.yml` |
+| Skill | `/pipeline-plan` | `/pipeline-build` | `/pipeline-fix` | `/pipeline-review <lens>` ×4 in parallel |
+| Claude can | read | read, edit, run `run-checks.sh` | read, edit, run `run-checks.sh` | read |
+| Returns | `plan.schema.json` | `build-report.schema.json` | `build-report.schema.json` | `review-findings.schema.json` |
+| Scripts then | post the plan, set labels | re-run checks, commit, open the PR | merge the base first; re-run checks, commit, push to the same PR | merge the 4 results into one comment |
+
+Every stage posts **⏳ started** with a link to its run, and `/cancel` (`ai-cancel.yml`) stops any of them.
 
 ## Issue lifecycle
 
@@ -64,11 +67,14 @@ stateDiagram-v2
     NeedsAnswers --> Planning: /plan + answers
     Planning --> PlanReady: no questions
     PlanReady --> Planning: change of mind + /plan
-    PlanReady --> Building: ai:approved
     Building --> PlanReady: blocked (agent explains why)
+    PlanReady --> Building: ai:approved or /approve
     Building --> PullRequest: checks pass twice
-    PullRequest --> Reviewing: automatic after the build, or ai:review / /review
+    PullRequest --> Reviewing: automatic after a build or fix, or /review
     Reviewing --> PullRequest: findings posted
+    PullRequest --> Fixing: /fix (+ what to change)
+    Fixing --> Reviewing: base merged, fixed, checks pass twice, pushed
+    Fixing --> PullRequest: blocked or nothing to change (agent explains)
     PullRequest --> [*]: a person merges
 ```
 
@@ -89,7 +95,7 @@ converges instead of starting over.
 
 | | |
 | --- | --- |
-| Trigger | `issues.labeled` with `ai:approved` (the label is the approval) |
+| Trigger | `issues.labeled` with `ai:approved`, or an issue comment starting with `/approve` (either is the approval) |
 | Precondition | the issue has at least one plan comment |
 | Agent | `/pipeline-build` · tools `Read, Glob, Grep, Edit, Write, Bash(./pipeline/scripts/run-checks.sh)` · 120 turns · 60-minute job |
 | Output | [`build-report.schema.json`](../templates/pipeline/schemas/build-report.schema.json): status, summary, changes, checks, followUps, commit (Conventional Commits header) |
@@ -110,11 +116,25 @@ flowchart LR
 The agent can't commit, push or call GitHub. If it reports success but changed nothing, or reports success while the
 checks fail, the workflow stops and comments on the issue instead of opening a pull request.
 
+## Stage 2b — Fix (`ai-build.yml`, fix mode)
+
+| | |
+| --- | --- |
+| Trigger | a pull request comment starting with `/fix`; the text after it is the request (none = fix the AI review's findings) |
+| Context | `.pipeline/pr.md`: the request, the description, the conversation (incl. the AI review) and comments on lines of code, from collaborators only; `.pipeline/issue.md`; `.pipeline/diff.patch` |
+| Before the agent | the pipeline's scripts and settings are copied from the default branch and used from there; `merge-base.sh` merges the latest base branch (a clean merge is committed, conflicts are left for the agent and listed in `.pipeline/conflicts.txt`; if the base changed workflow files it stops, since the workflow token can't push those); `snapshot-config.sh save` keeps the branch's `CLAUDE.md` / `.claude/`, which `claude-code-action` swaps for the default branch's copies on pull request events |
+| Agent | `/pipeline-fix` · same tools and limits as the build |
+| Output | `build-report.schema.json` |
+| Effect | `push-fix.sh`: restores the saved `CLAUDE.md` / `.claude/`; refuses to push while conflict markers remain; commits (Conventional Commits header from the report), pushes to the pull request's own branch, comments what changed; then the review runs again |
+
+The same workflow runs build and fix, so the toolchain is configured once. It runs only on pull requests from the same
+repository.
+
 ## Stage 3 — Review (`ai-review.yml`)
 
 | | |
 | --- | --- |
-| Trigger | called by the build workflow right after it opens the pull request (`workflow_call`); or `pull_request.labeled` with `ai:review`, or a pull request comment starting with `/review`, to run again |
+| Trigger | called by the build workflow right after it opens or updates the pull request (`workflow_call`); or `pull_request.labeled` with `ai:review`, or a pull request comment starting with `/review`, to run again |
 | Jobs | `gate` → `review` (matrix of 4 lenses, `fail-fast: false`) → `summarize` |
 | Agent | `/pipeline-review <lens>` · tools `Read, Glob, Grep` · 40 turns · 30-minute job each |
 | Output | [`review-findings.schema.json`](../templates/pipeline/schemas/review-findings.schema.json): lens, verdict, findings (severity, file, line, title, detail, suggestion) |
@@ -135,6 +155,15 @@ flowchart LR
 The reviewers don't see each other's findings, so they don't anchor on one another. The summary merges findings
 that several lenses reported for the same file, line and title, and keeps the highest severity and every lens that
 found it, so agreement between independent reviewers is visible.
+
+## Concurrency and cancelling
+
+Each stage runs in a concurrency group named after its issue or pull request: `ai-plan-N`, `ai-build-N` (build and
+fix) and `ai-review-N`. A new `/plan` or `/review` replaces one still running; builds and fixes queue. Every comment
+starts a run of each workflow, so comments that aren't the stage's command get a throwaway group and are skipped
+without touching a running stage. `/cancel` (`ai-cancel.yml`) joins the issue's or pull request's groups with
+`cancel-in-progress: true`, which stops whatever runs there; because commits and comments happen only after the
+agent finishes, a cancelled stage leaves nothing half-done.
 
 ## Data contracts
 

@@ -28,4 +28,4 @@ _None._
 
 ### ✅ Ready to build
 
-_Add the `ai:approved` label to build this plan._
+_Comment `/approve` (or add the `ai:approved` label) to build this plan._

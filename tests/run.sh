@@ -42,7 +42,7 @@ for f in "$schemas"/*.json "$fixtures"/*.json "$fixtures"/review/*.json "$root"/
 done
 for f in "$scripts"/*.jq; do
   # Compile only: wrap the program so it never runs.
-  if jq -n --arg sha x --arg issue 1 "empty | ($(cat "$f")
+  if jq -n --arg sha x --arg issue 1 --arg kind x --arg pr 1 --argjson inline '[]' --argjson trusted '[]' "empty | ($(cat "$f")
 )" > /dev/null 2>&1; then
     pass "jq compiles ${f#"$root"/}"
   else
@@ -97,10 +97,14 @@ check_render plan-with-questions "$(jq -r -f "$scripts/render-plan.jq" "$fixture
 check_render plan-ready "$(jq -r -f "$scripts/render-plan.jq" "$fixtures/plan-ready.json")"
 check_render pr-body "$(jq -r --arg issue 12 -f "$scripts/render-pr-body.jq" "$fixtures/build-report.json")"
 check_render review "$(jq -s -r --arg sha 3f9c2e1a7b -f "$scripts/render-review.jq" "$fixtures"/review/*.json)"
-check_render commit-message "$(jq -r --arg issue 12 -f "$scripts/commit-message.jq" "$fixtures/build-report.json")"
+check_render commit-message "$(jq -r --arg kind build --arg issue 12 --arg pr "" -f "$scripts/commit-message.jq" "$fixtures/build-report.json")"
 check_render commit-message-breaking "$(jq '.commit.breaking = true | .commit.breakingChange = "GET /tasks no longer sorts by creation time first."' "$fixtures/build-report.json" \
-  | jq -r --arg issue 12 -f "$scripts/commit-message.jq")"
-check_render issue-context "$(jq -r -f "$scripts/issue-context.jq" "$fixtures/issue-view.json")"
+  | jq -r --arg kind build --arg issue 12 --arg pr "" -f "$scripts/commit-message.jq")"
+check_render commit-message-fix "$(jq '.commit.type = "fix" | .commit.summary = "compare due dates in utc"' "$fixtures/build-report.json" \
+  | jq -r --arg kind fix --arg issue 12 --arg pr 14 -f "$scripts/commit-message.jq")"
+check_render pr-context "$(jq -n -r --argjson pr "$(cat "$fixtures/pr-view.json")" --argjson inline "$(cat "$fixtures/pr-inline-comments.json")" --argjson trusted '["jim"]' \
+  -f "$scripts/pr-context.jq")"
+check_render issue-context "$(jq -r --argjson trusted '["jim"]' -f "$scripts/issue-context.jq" "$fixtures/issue-view.json")"
 
 echo "Examples"
 # examples/ shows the renderers' real output: each file is a two-line caption, then the expected output.
@@ -114,10 +118,15 @@ for pair in "02-plan-with-questions:plan-with-questions" "04-plan-ready:plan-rea
 done
 
 echo "Behaviour"
-context="$(jq -r -f "$scripts/issue-context.jq" "$fixtures/issue-view.json")"
+context="$(jq -r --argjson trusted '["jim"]' -f "$scripts/issue-context.jq" "$fixtures/issue-view.json")"
 if grep -q "crypto wallet" <<< "$context"; then fail "untrusted comments are withheld"; else pass "untrusted comments are withheld"; fi
 if grep -q "Allow past dates" <<< "$context"; then pass "owner answers reach the agent"; else fail "owner answers reach the agent"; fi
 if grep -q "ai-pipeline:plan" <<< "$context"; then pass "the pipeline's plan reaches the agent"; else fail "the pipeline's plan reaches the agent"; fi
+prctx="$(jq -n -r --argjson pr "$(cat "$fixtures/pr-view.json")" --argjson inline "$(cat "$fixtures/pr-inline-comments.json")" --argjson trusted '["jim"]' \
+  -f "$scripts/pr-context.jq")"
+if grep -q "delete the tests folder\|Add my link" <<< "$prctx"; then fail "outsiders' PR comments are withheld"; else pass "outsiders' PR comments are withheld"; fi
+if grep -A2 "What you were asked to fix" <<< "$prctx" | grep -q "compare dates in UTC"; then pass "the latest collaborator /fix is the request"; else fail "the latest collaborator /fix is the request"; fi
+if grep -q "src/tasks/task-routes.ts:42" <<< "$prctx"; then pass "line comments reach the agent"; else fail "line comments reach the agent"; fi
 review="$(jq -s -r --arg sha 3f9c2e1a7b -f "$scripts/render-review.jq" "$fixtures"/review/*.json)"
 if [[ "$(grep -c "Overdue check compares dates" <<< "$review")" == "1" ]]; then
   pass "duplicate findings across lenses are merged"
@@ -138,6 +147,30 @@ done
 for bad in "Add due dates" "feat: add due dates" "feat(Tasks): add due dates" "feat(tasks): Add due dates" "feat(tasks): add due dates." "feature(tasks): add due dates"; do
   if [[ "$bad" =~ $header_pattern ]]; then fail "rejects: $bad"; else pass "rejects: $bad"; fi
 done
+
+echo "Fix: merge with the base branch"
+tmp="$(mktemp -d)"
+if (
+  cd "$tmp" && git init -q -b main && git config user.email t@t && git config user.name t
+  printf 'a\nb\n' > f.txt && git add f.txt && git commit -q -m base
+  git switch -q -c feature && printf 'a\nfeature\n' > f.txt && git commit -qam feature
+  git switch -q main && printf 'a\nmain\n' > f.txt && git commit -qam main
+  git switch -q feature && git update-ref refs/remotes/origin/main main
+  BASE_REF=main "$scripts/merge-base.sh" > /dev/null
+  [[ -s .pipeline/conflicts.txt ]] && grep -q f.txt .pipeline/conflicts.txt
+) then pass "a conflicting base is left for the agent, files listed"; else fail "a conflicting base is left for the agent, files listed"; fi
+rm -rf "$tmp"
+tmp="$(mktemp -d)"
+if (
+  cd "$tmp" && git init -q -b main && git config user.email t@t && git config user.name t
+  printf 'a\n' > f.txt && git add f.txt && git commit -q -m base
+  git switch -q -c feature && printf 'x\n' > g.txt && git add g.txt && git commit -qm feature
+  git switch -q main && printf 'b\n' > h.txt && git add h.txt && git commit -qm main
+  git switch -q feature && git update-ref refs/remotes/origin/main main
+  BASE_REF=main "$scripts/merge-base.sh" > /dev/null
+  [[ ! -s .pipeline/conflicts.txt ]] && [[ -f h.txt ]]
+) then pass "a clean base is merged before the agent runs"; else fail "a clean base is merged before the agent runs"; fi
+rm -rf "$tmp"
 
 echo "Installer"
 tmp="$(mktemp -d)"

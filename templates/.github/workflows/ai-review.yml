@@ -19,8 +19,15 @@ on:
         type: string
         required: true
 
+# Only real commands from collaborators join the pull request's group (groups are resolved before any job runs); every
+# other comment or label gets a throwaway group, so it can't cancel a review.
 concurrency:
-  group: ai-review-${{ inputs.pr || github.event.pull_request.number || github.event.issue.number }}
+  group: >-
+    ai-review-${{ inputs.pr || (
+      (github.event_name == 'pull_request' && github.event.label.name == 'ai:review') ||
+      (github.event_name == 'issue_comment' && github.event.issue.pull_request && startsWith(github.event.comment.body, '/review') &&
+        contains(fromJSON('["OWNER","MEMBER","COLLABORATOR","CONTRIBUTOR"]'), github.event.comment.author_association))
+    ) && (github.event.pull_request.number || github.event.issue.number) || format('skip-{0}', github.run_id) }}
   cancel-in-progress: true
 
 jobs:
@@ -33,7 +40,8 @@ jobs:
     timeout-minutes: 5
     permissions:
       contents: read
-      pull-requests: read
+      pull-requests: write  # the "started" comment
+      issues: write
     outputs:
       pr: ${{ steps.pr.outputs.number }}
       head_sha: ${{ steps.pr.outputs.head_sha }}
@@ -73,11 +81,17 @@ jobs:
             echo "issue=$(jq -r '.closingIssuesReferences[0].number // empty' <<< "$pr")"
           } >> "$GITHUB_OUTPUT"
 
+      - name: Say it started
+        run: ./pipeline/scripts/post-started.sh
+        env:
+          STAGE: Review
+          NUMBER: ${{ steps.pr.outputs.number }}
+
   review:
     # No GH_TOKEN in the job: only the context step calls GitHub.
     needs: gate
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: ${{ fromJSON(vars.PIPELINE_TIMEOUT_REVIEW || '30') }}
     strategy:
       fail-fast: false
       matrix:
@@ -125,7 +139,8 @@ jobs:
           settings: pipeline/claude-settings.json
           prompt: /pipeline-review ${{ matrix.lens }}
           claude_args: >-
-            --max-turns 40
+            --model ${{ vars.PIPELINE_MODEL_REVIEW || 'claude-opus-5-5' }}
+            --max-turns ${{ vars.PIPELINE_MAX_TURNS_REVIEW || '60' }}
             --allowedTools "Read,Glob,Grep"
             --disallowedTools "Bash,Edit,Write,WebFetch,WebSearch,mcp__*"
             --json-schema '${{ steps.schema.outputs.json }}'
@@ -145,7 +160,8 @@ jobs:
 
   summarize:
     needs: [gate, review]
-    if: always() && needs.gate.result == 'success'
+    # Not after a cancel: a cancelled or replaced review must not post a partial result.
+    if: ${{ !cancelled() && needs.gate.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:

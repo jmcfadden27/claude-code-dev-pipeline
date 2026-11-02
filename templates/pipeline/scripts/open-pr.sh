@@ -6,7 +6,7 @@
 # repository's own CI won't run on this branch automatically. That is why the build workflow runs the checks itself
 # before this step. See docs/design-decisions.md.
 #
-# Env: REPORT_JSON (the action's structured_output), ISSUE_NUMBER, GH_TOKEN; optional BASE_BRANCH.
+# Env: REPORT_JSON (the action's structured_output), ISSUE_NUMBER, GH_TOKEN, GITHUB_REPOSITORY; optional BASE_BRANCH.
 set -euo pipefail
 
 : "${ISSUE_NUMBER:?ISSUE_NUMBER is required}"
@@ -27,7 +27,7 @@ fi
 
 base="${BASE_BRANCH:-$(git rev-parse --abbrev-ref HEAD)}"
 branch="ai/issue-${ISSUE_NUMBER}-$(date -u +%Y%m%d%H%M%S)"
-message="$(jq -r --arg issue "$ISSUE_NUMBER" -f "$here/commit-message.jq" <<< "$REPORT_JSON")"
+message="$(jq -r --arg kind build --arg issue "$ISSUE_NUMBER" --arg pr "" -f "$here/commit-message.jq" <<< "$REPORT_JSON")"
 title="$(head -n 1 <<< "$message")"
 # Conventional Commits: type(scope)!: summary. The schema constrains each part; this checks the assembled header.
 header_pattern='^(feat|fix|refactor|perf|test|docs|ci|chore)\([a-z0-9][a-z0-9-]*\)!?: [a-z0-9].*[^.]$'
@@ -39,9 +39,14 @@ fi
 git config user.name "github-actions[bot]"
 git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 git switch -c "$branch"
-git add -A -- . ':!.pipeline'
+# .pipeline/ (the agent's scratch files) is in .git/info/exclude, so it's never added.
+git add -A
 git commit -q -F - <<< "$message"
-git push -q origin "$branch"
+# Push with the workflow token explicitly. Earlier steps (claude-code-action) can leave their own short-lived GitHub
+# credentials in the git config, revoked by now; clear them so they aren't sent instead.
+git config --local --unset-all http.https://github.com/.extraheader 2>/dev/null || true
+git config --global --unset-all http.https://github.com/.extraheader 2>/dev/null || true
+git push -q "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:refs/heads/${branch}"
 
 body="$(jq -r --arg issue "$ISSUE_NUMBER" -f "$here/render-pr-body.jq" <<< "$REPORT_JSON")"
 url="$(gh pr create --base "$base" --head "$branch" --title "$title" --body "$body")"

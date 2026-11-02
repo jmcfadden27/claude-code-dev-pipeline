@@ -1,5 +1,6 @@
 # Stage 1 — Plan.
-# Trigger: add the `ai:plan` label to an issue, or comment `/plan` on it (to re-plan after answering questions).
+# Trigger: add the `ai:plan` label to an issue, or comment `/plan` on it. To answer the plan's questions or change the
+# plan, reply in one comment that starts with `/plan`; a new `/plan` replaces a plan run still in progress.
 # The agent reads the issue thread and the code, then the workflow posts its plan and questions on the issue.
 # The agent can only read: no edits, no shell, no GitHub access.
 name: AI Plan
@@ -10,8 +11,15 @@ on:
   issue_comment:
     types: [created]
 
+# Only real commands from collaborators join the issue's group (groups are resolved before any job runs); every other
+# comment gets a throwaway group, so it can't cancel a plan in progress.
 concurrency:
-  group: ai-plan-${{ github.event.issue.number }}
+  group: >-
+    ai-plan-${{ (
+      (github.event_name == 'issues' && github.event.label.name == 'ai:plan') ||
+      (github.event_name == 'issue_comment' && !github.event.issue.pull_request && startsWith(github.event.comment.body, '/plan') &&
+        contains(fromJSON('["OWNER","MEMBER","COLLABORATOR","CONTRIBUTOR"]'), github.event.comment.author_association))
+    ) && github.event.issue.number || format('skip-{0}', github.run_id) }}
   cancel-in-progress: true
 
 jobs:
@@ -22,7 +30,7 @@ jobs:
         (github.event_name == 'issue_comment' && startsWith(github.event.comment.body, '/plan'))
       )
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: ${{ fromJSON(vars.PIPELINE_TIMEOUT_PLAN || '30') }}
     permissions:
       contents: read
       issues: write
@@ -43,6 +51,13 @@ jobs:
           ACTOR: ${{ github.actor }}
           PIPELINE_ALLOWED_USERS: ${{ vars.PIPELINE_ALLOWED_USERS }}
 
+      - name: Say it started
+        run: ./pipeline/scripts/post-started.sh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          STAGE: Plan
+          NUMBER: ${{ github.event.issue.number }}
+
       - name: Gather the issue thread
         run: ./pipeline/scripts/gather-issue-context.sh
         env:
@@ -60,7 +75,8 @@ jobs:
           settings: pipeline/claude-settings.json
           prompt: /pipeline-plan
           claude_args: >-
-            --max-turns 40
+            --model ${{ vars.PIPELINE_MODEL_PLAN || 'claude-opus-5-5' }}
+            --max-turns ${{ vars.PIPELINE_MAX_TURNS_PLAN || '60' }}
             --allowedTools "Read,Glob,Grep"
             --disallowedTools "Bash,Edit,Write,WebFetch,WebSearch,mcp__*"
             --json-schema '${{ steps.schema.outputs.json }}'
@@ -72,7 +88,7 @@ jobs:
           PLAN_JSON: ${{ steps.claude.outputs.structured_output }}
 
       - name: Report a failure on the issue
-        if: failure()
+        if: failure() || cancelled()
         run: ./pipeline/scripts/comment-failure.sh
         env:
           GH_TOKEN: ${{ github.token }}
