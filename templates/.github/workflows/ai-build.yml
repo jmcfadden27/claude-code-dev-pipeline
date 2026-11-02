@@ -17,13 +17,14 @@ on:
     types: [created]
 
 # One build or fix at a time per issue / pull request. `/cancel` stops a running one (ai-cancel.yml).
-# Only real commands from collaborators join the issue's / pull request's group (groups are resolved before any job
-# runs); every other comment gets a throwaway group, so it can't queue behind or replace a build.
+# Only the stage's own commands join the issue's / pull request's group; every other comment gets a throwaway group, so
+# it can't queue behind or replace a build. (Groups are resolved before any job runs, so this can't check who wrote
+# the comment; the job then refuses anyone without write access.)
 concurrency:
   group: >-
     ai-build-${{ (
       (github.event_name == 'issues' && github.event.label.name == 'ai:approved' && !github.event.issue.pull_request) ||
-      (github.event_name == 'issue_comment' && contains(fromJSON('["OWNER","MEMBER","COLLABORATOR","CONTRIBUTOR"]'), github.event.comment.author_association) && (
+      (github.event_name == 'issue_comment' && (
         (!github.event.issue.pull_request && startsWith(github.event.comment.body, '/approve')) ||
         (github.event.issue.pull_request && startsWith(github.event.comment.body, '/fix'))))
     ) && github.event.issue.number || format('skip-{0}', github.run_id) }}
@@ -39,6 +40,7 @@ jobs:
     timeout-minutes: ${{ fromJSON(vars.PIPELINE_TIMEOUT_BUILD || '120') }}
     outputs:
       pr: ${{ steps.open_pr.outputs.pr || steps.push_fix.outputs.pr }}
+      sha: ${{ steps.open_pr.outputs.sha || steps.push_fix.outputs.sha }}
     permissions:
       contents: write
       pull-requests: write
@@ -142,11 +144,13 @@ jobs:
 
       - name: Load the report schema
         id: schema
-        run: echo "json=$(jq -c . pipeline/schemas/build-report.schema.json)" >> "$GITHUB_OUTPUT"
+        run: echo "json=$(jq -c . "$RUNNER_TEMP/base/pipeline/schemas/build-report.schema.json")" >> "$GITHUB_OUTPUT"
 
       - name: Build or fix
         id: claude
         uses: anthropics/claude-code-action@v1
+        env:
+          CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1"  # strip credentials the action holds from commands the agent runs
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           settings: ${{ runner.temp }}/base/pipeline/claude-settings.json
@@ -208,4 +212,5 @@ jobs:
     uses: ./.github/workflows/ai-review.yml
     with:
       pr: ${{ needs.build.outputs.pr }}
+      sha: ${{ needs.build.outputs.sha }}
     secrets: inherit

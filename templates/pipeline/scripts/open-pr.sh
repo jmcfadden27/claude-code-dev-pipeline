@@ -55,4 +55,4 @@ gh issue comment "$ISSUE_NUMBER" --body "<!-- ai-pipeline:built -->
 🔧 Built the approved plan: ${url}. The AI review starts now."
 echo "Opened ${url}"
 # The pull request number, for the review stage that runs next.
-if [[ -n "${GITHUB_OUTPUT:-}" ]]; then echo "pr=${url##*/}" >> "$GITHUB_OUTPUT"; fi
+if [[ -n "${GITHUB_OUTPUT:-}" ]]; then { echo "pr=${url##*/}"; echo "sha=$(git rev-parse HEAD)"; } >> "$GITHUB_OUTPUT"; fi

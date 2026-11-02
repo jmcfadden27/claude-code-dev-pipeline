@@ -18,15 +18,18 @@ on:
         description: The pull request to review (the build stage passes the one it opened).
         type: string
         required: true
+      sha:
+        description: The commit just pushed, so the review never reads an older head while GitHub catches up.
+        type: string
+        required: false
 
-# Only real commands from collaborators join the pull request's group (groups are resolved before any job runs); every
-# other comment or label gets a throwaway group, so it can't cancel a review.
+# Only the stage's own command or label joins the pull request's group; every other comment gets a throwaway group, so
+# it can't cancel a review. (Groups are resolved before any job runs; the gate then refuses anyone without write access.)
 concurrency:
   group: >-
     ai-review-${{ inputs.pr || (
       (github.event_name == 'pull_request' && github.event.label.name == 'ai:review') ||
-      (github.event_name == 'issue_comment' && github.event.issue.pull_request && startsWith(github.event.comment.body, '/review') &&
-        contains(fromJSON('["OWNER","MEMBER","COLLABORATOR","CONTRIBUTOR"]'), github.event.comment.author_association))
+      (github.event_name == 'issue_comment' && github.event.issue.pull_request && startsWith(github.event.comment.body, '/review'))
     ) && (github.event.pull_request.number || github.event.issue.number) || format('skip-{0}', github.run_id) }}
   cancel-in-progress: true
 
@@ -68,6 +71,7 @@ jobs:
         id: pr
         env:
           NUMBER: ${{ inputs.pr || github.event.pull_request.number || github.event.issue.number }}
+          PUSHED_SHA: ${{ inputs.sha }}
         run: |
           pr="$(gh pr view "$NUMBER" --json number,headRefOid,baseRefName,isCrossRepository,closingIssuesReferences)"
           if [[ "$(jq -r .isCrossRepository <<< "$pr")" == "true" ]]; then
@@ -76,7 +80,7 @@ jobs:
           fi
           {
             echo "number=$(jq -r .number <<< "$pr")"
-            echo "head_sha=$(jq -r .headRefOid <<< "$pr")"
+            echo "head_sha=${PUSHED_SHA:-$(jq -r .headRefOid <<< "$pr")}"
             echo "base_ref=$(jq -r .baseRefName <<< "$pr")"
             echo "issue=$(jq -r '.closingIssuesReferences[0].number // empty' <<< "$pr")"
           } >> "$GITHUB_OUTPUT"
@@ -134,6 +138,8 @@ jobs:
       - name: Review (${{ matrix.lens }})
         id: claude
         uses: anthropics/claude-code-action@v1
+        env:
+          CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1"
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           settings: pipeline/claude-settings.json
@@ -190,7 +196,7 @@ jobs:
           HEAD_SHA: ${{ needs.gate.outputs.head_sha }}
 
       - name: Report a failure on the pull request
-        if: failure() || needs.review.result == 'failure'
+        if: failure() || needs.review.result != 'success'
         run: ./pipeline/scripts/comment-failure.sh
         env:
           STAGE: review

@@ -19,7 +19,9 @@ fi
 # never be pushed. Stop early with what to do instead.
 since="$(git merge-base HEAD "origin/${BASE_REF}")"
 if [[ -n "$(git diff --name-only "$since" "origin/${BASE_REF}" -- .github/workflows)" ]]; then
-  echo "::error::${BASE_REF} changed workflow files since this branch was made, and the pipeline can't push those. Click \"Update branch\" on the pull request (or merge ${BASE_REF} into it yourself), then comment /fix again."
+  reason="${BASE_REF} changed workflow files since this branch was made, and the pipeline can't push those. Click **Update branch** on the pull request (or merge ${BASE_REF} into it yourself), then comment \`/fix\` again."
+  echo "::error::${reason}"
+  echo "$reason" > "${RUNNER_TEMP:-/tmp}/failure-reason"
   exit 1
 fi
 
@@ -27,6 +29,10 @@ if git merge --no-edit -m "chore(merge): bring in the latest ${BASE_REF}" "origi
   echo "Merged the latest ${BASE_REF}."
 else
   git diff --name-only --diff-filter=U > .pipeline/conflicts.txt
+  if [[ ! -f .git/MERGE_HEAD || ! -s .pipeline/conflicts.txt ]]; then
+    echo "::error::Merging ${BASE_REF} failed for a reason other than conflicts (see above)."
+    exit 1
+  fi
   echo "Merge conflicts for the agent to resolve:"
   cat .pipeline/conflicts.txt
 fi

@@ -7,6 +7,11 @@ set -euo pipefail
 
 run_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
 reason=""
+if [[ -s "${RUNNER_TEMP:-/tmp}/failure-reason" ]]; then
+  reason="
+
+$(cat "${RUNNER_TEMP:-/tmp}/failure-reason")"
+fi
 if [[ -n "${REPORT_JSON:-}" ]] && [[ "$(jq -r '.status // empty' <<< "$REPORT_JSON" 2>/dev/null)" == "blocked" ]]; then
   reason="
 

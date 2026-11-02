@@ -73,4 +73,4 @@ $(jq -r '.summary' <<< "$REPORT_JSON")
 ${changes}
 
 The AI review runs again now."
-if [[ -n "${GITHUB_OUTPUT:-}" ]]; then echo "pr=${PR_NUMBER}" >> "$GITHUB_OUTPUT"; fi
+if [[ -n "${GITHUB_OUTPUT:-}" ]]; then { echo "pr=${PR_NUMBER}"; echo "sha=$(git rev-parse HEAD)"; } >> "$GITHUB_OUTPUT"; fi

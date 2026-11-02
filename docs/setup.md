@@ -31,7 +31,7 @@ You need:
 | What | Why | Check |
 | --- | --- | --- |
 | A GitHub repository you are an **admin** of | to add secrets, labels and the GitHub App | the repository shows a **Settings** tab |
-| **GitHub Actions** enabled for it | the pipeline is three workflows | **Settings → Actions → General**: "Allow all actions" (or allow `anthropics/*`, `actions/*` and any toolchain actions you add) |
+| **GitHub Actions** enabled for it | the pipeline is four workflows | **Settings → Actions → General**: "Allow all actions" (or allow `anthropics/*`, `actions/*` and any toolchain actions you add) |
 | Workflows **allowed to create pull requests** | the build stage opens the pull request | **Settings → Actions → General → Workflow permissions**: tick "Allow GitHub Actions to create and approve pull requests". Greyed out? The organization's setting overrides it: an organization owner ticks the same box at `https://github.com/organizations/<org>/settings/actions` first (if it's greyed out there too, an enterprise policy controls it). |
 | [Claude Code](https://code.claude.com) installed locally | to create the credential (step 8) | `claude --version` |
 | A Claude **Pro / Max** subscription, or a Claude API key | the agents run on it | — |
@@ -84,7 +84,10 @@ anything else in the shell), and the build workflow runs it again itself before 
 - exit `0` only when everything passes;
 - run without prompts (no interactive input, no watch mode).
 
-Replace the template body with your commands. Examples:
+Keep the block at the top of the template: in CI it removes the GitHub, cloud and Claude credentials from the
+environment and the git remote before any project code (including tests the agent wrote) runs.
+
+Replace the rest of the template body with your commands. Examples:
 
 ```bash
 # Node
@@ -348,7 +351,11 @@ claude-code-dev-pipeline/scripts/create-labels.sh <owner>/<repo>
   name `PIPELINE_ALLOWED_USERS`, value a comma-separated list of GitHub usernames. Only they can then start a stage,
   on top of the write-access check.
 - **Public repositories:** read issues from people outside the project before you label them. Their comments never
-  reach the agent, but the issue body you choose to plan does.
+  reach the agent, but the issue body you choose to plan does. Anyone who can comment can type a command; the job
+  refuses them, but their comment can still replace a queued run or cancel a running plan or review. If that becomes a
+  problem, limit who can comment (**Settings → Moderation options → Interaction limits**).
+- **Self-hosted runners:** `pipeline/claude-settings.json` denies reading `/home/runner/work/_temp/secrets`, the
+  location on GitHub-hosted runners. Change it to your runner's `RUNNER_TEMP`.
 
 - **Delete merged branches automatically:** **Settings → General → Pull Requests →** tick "Automatically delete head
   branches", so merged `ai/issue-N-…` branches disappear.
@@ -487,12 +494,12 @@ Use this to try changes to a skill's instructions before they reach the pipeline
 | **GitHub Actions is not permitted to create or approve pull requests** | Tick "Allow GitHub Actions to create and approve pull requests" (step 1). The branch was already pushed: open its pull request from the link in the log and comment `/review`. |
 | The run fails at **Check the requester may run the pipeline** | The person who added the label or wrote the command lacks write access, or isn't in `PIPELINE_ALLOWED_USERS`. |
 | The run fails in the **Plan / Build or fix / Review** (Claude) step with an authentication error | The secret is missing or misnamed (step 8), the token expired (`claude setup-token` again), or the Claude GitHub App isn't installed on this repository (step 7). Test the token locally with `claude`. |
-| **Require an approved plan** fails | The issue has no plan comment yet. Add `ai:plan` first. |
+| **Work out what to do** fails with "No plan on this issue yet" | The issue has no plan comment yet. Add `ai:plan` (or comment `/plan`) first. |
 | **is not configured for this repository yet** | `pipeline/scripts/run-checks.sh` still has the template body (step 3). |
 | The Claude step stops at the turn limit, or the job at its timeout | The change is too big for one run. Split the issue, or raise `PIPELINE_MAX_TURNS_*` / `PIPELINE_TIMEOUT_*` (see "Choosing the model and limits"). |
 | Fix fails with **changed workflow files since this branch was made** | The pipeline's workflow token can't push changes to `.github/workflows/`. Click **Update branch** on the pull request (or merge the base into it yourself), then `/fix` again. |
 | Fix fails with **Push refused** | Someone pushed to the branch while the fix ran: `/fix` again. If the log mentions workflows, see the row above. |
-| `/fix` on a pull request opened before you updated the pipeline | Works: the pipeline's own scripts always come from the default branch. Only `run-checks.sh` comes from the pull request's branch. |
+| `/fix` on a pull request opened before you updated the pipeline | The pipeline's scripts always come from the default branch, but if the update changed `.github/workflows/` the fix stops and asks you to click **Update branch** first (see above). |
 | **Unresolved merge conflicts remain** (fix) | The agent couldn't resolve every conflict with the base branch. Resolve them locally on the branch and push, or `/fix` with guidance on which side to keep. |
 | Fix says **Nothing to change** | The agent found nothing to do for the request; its reason is in the comment. Be more specific after `/fix`. |
 | A `/cancel` left a **⚠️ … failed or was cancelled** comment | Expected: the cancelled run reports itself. Nothing was pushed. |

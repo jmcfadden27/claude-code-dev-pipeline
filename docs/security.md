@@ -16,7 +16,8 @@ Two principles shape the design:
 | A stranger triggers runs on a public repository (cost, abuse) | Write access required, checked by the pipeline before any step and by `claude-code-action` before the agent; optional `PIPELINE_ALLOWED_USERS` allow-list; bots rejected by the action unless allowed | `require-write-access.sh`, action defaults |
 | Prompt injection through issue comments | Comments from people without write access (checked through the API, since GitHub reports private organization members as CONTRIBUTOR) are replaced with a "withheld" note before the agent sees the thread | `trusted-authors.sh`, `issue-context.jq`, `pr-context.jq` (tested) |
 | A pull request's branch changes the pipeline's own scripts | In fix mode the pipeline copies its scripts and settings from the default branch before checking out the pull request's branch, and runs those; only `run-checks.sh` (the project's checks) runs from the branch | `ai-build.yml` |
-| Strangers cancel or displace runs with command comments | Concurrency groups are resolved before any job runs, so only commands from owners, members, collaborators and contributors join a stage's group; everything else gets a throwaway group. The jobs then check write access through the API | workflows |
+| Strangers start runs with command comments | Every job checks write access through the API before doing anything; `/cancel` acts only after that check | workflows, `require-write-access.sh` |
+| Code the agent writes (tests) reaches GitHub or the cloud | `run-checks.sh` drops the GitHub, OIDC, cloud and Claude credentials from its environment and resets the `origin` URL before running project code; the Claude step runs with `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1`; the agent can't read `.git/` or `$RUNNER_TEMP/secrets` | `run-checks.sh`, workflows, `claude-settings.json` |
 | Prompt injection through the issue body | A collaborator decides to run the pipeline on an issue; the docs say to read a stranger's issue before labelling it | process |
 | A pull request rewrites its own review prompts or scripts | Review jobs run prompts, settings and scripts from the base branch; the PR's code is checked out read-only in `pr/` without credentials | `ai-review.yml` |
 | Fork pull requests | Rejected by the review gate and the fix stage (`isCrossRepository`); GitHub also withholds secrets from fork runs | `ai-review.yml`, `ai-build.yml` |
@@ -48,13 +49,14 @@ action don't get it.
 
 - **The issue body is trusted once a collaborator labels the issue.** Read requests from outside the project before
   starting the pipeline on them.
-- **`run-checks.sh` runs project code, including tests the agent wrote.** The workflows give `GH_TOKEN` only to the
-  steps that call GitHub and check out without stored git credentials. However, during the Claude step itself
-  `claude-code-action` writes its own short-lived GitHub App token into the repository's `origin` URL in
-  `.git/config` (revoked when the step ends), so code that runs inside that step could read it. Review pull requests
-  before merging, keep tests free of network calls, and keep other secrets out of the build job. Configs that hold
-  package-feed tokens go in `$RUNNER_TEMP/secrets/`, which the agent is denied reading.
-- **Concurrency is shared by contributors.** On public repositories, anyone GitHub marks as a contributor (a past
-  merged commit) can queue or replace a pending run with a command comment; the job still refuses to run for them.
+- **`run-checks.sh` runs project code, including tests the agent wrote.** During the Claude step `claude-code-action`
+  holds its own short-lived GitHub App token (in its environment and the `origin` URL; revoked when the step ends).
+  `run-checks.sh` removes those and the job's OIDC request token before running project code, but a package-feed
+  config written for the build (for example a CodeArtifact token in `$RUNNER_TEMP/secrets/`) is still usable by that
+  code. Give the build only **read** access to package feeds, review pull requests before merging, and keep tests
+  free of network calls.
+- **Command comments from strangers.** Concurrency groups are resolved before any job can check who commented, so on a
+  public repository anyone's `/plan` or `/review` can cancel a run in progress (and `/approve` or `/fix` replace a
+  queued one). Nothing runs for them. Limit interactions if needed (setup step 10).
 - **Prompt-injection defences are layered, not absolute.** The agents' limited tools are what bound the damage if
   an injection succeeds: no agent can push, comment or reach the network.

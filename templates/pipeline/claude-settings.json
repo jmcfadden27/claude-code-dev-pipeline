@@ -18,7 +18,8 @@
       "WebSearch",
       "Edit(./CLAUDE.md)",
       "Write(./CLAUDE.md)",
-      "Read(//home/runner/work/_temp/secrets/**)"
+      "Read(//home/runner/work/_temp/secrets/**)",
+      "Read(./.git/**)"
     ]
   },
   "env": {

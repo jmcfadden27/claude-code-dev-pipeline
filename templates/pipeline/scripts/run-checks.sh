@@ -6,6 +6,14 @@
 # opens a pull request. Keep it deterministic and non-interactive: exit 0 only when everything passes.
 set -euo pipefail
 
+# In CI, project code (including tests the agent wrote) must not reach GitHub or the cloud: drop the tokens the
+# pipeline and claude-code-action hold, and the token the action writes into the origin URL.
+if [[ "${CI:-}" == "true" ]]; then
+  unset GITHUB_TOKEN GH_TOKEN ACTIONS_ID_TOKEN_REQUEST_TOKEN ACTIONS_ID_TOKEN_REQUEST_URL ACTIONS_RUNTIME_TOKEN \
+    CLAUDE_CODE_OAUTH_TOKEN INPUT_CLAUDE_CODE_OAUTH_TOKEN ANTHROPIC_API_KEY INPUT_ANTHROPIC_API_KEY
+  git remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git" 2> /dev/null || true
+fi
+
 # Examples — uncomment and adapt one:
 #
 #   npm ci && npm run lint && npm test

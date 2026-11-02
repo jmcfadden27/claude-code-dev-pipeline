@@ -11,14 +11,13 @@ on:
   issue_comment:
     types: [created]
 
-# Only real commands from collaborators join the issue's group (groups are resolved before any job runs); every other
-# comment gets a throwaway group, so it can't cancel a plan in progress.
+# Only the stage's own command joins the issue's group; every other comment gets a throwaway group, so it can't cancel a
+# plan in progress. (Groups are resolved before any job runs; the job then refuses anyone without write access.)
 concurrency:
   group: >-
     ai-plan-${{ (
       (github.event_name == 'issues' && github.event.label.name == 'ai:plan') ||
-      (github.event_name == 'issue_comment' && !github.event.issue.pull_request && startsWith(github.event.comment.body, '/plan') &&
-        contains(fromJSON('["OWNER","MEMBER","COLLABORATOR","CONTRIBUTOR"]'), github.event.comment.author_association))
+      (github.event_name == 'issue_comment' && !github.event.issue.pull_request && startsWith(github.event.comment.body, '/plan'))
     ) && github.event.issue.number || format('skip-{0}', github.run_id) }}
   cancel-in-progress: true
 
@@ -70,6 +69,8 @@ jobs:
       - name: Plan
         id: claude
         uses: anthropics/claude-code-action@v1
+        env:
+          CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1"
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           settings: pipeline/claude-settings.json
