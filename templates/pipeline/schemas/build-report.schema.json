@@ -1,7 +1,7 @@
 {
   "type": "object",
   "additionalProperties": false,
-  "required": ["status", "summary", "changes", "checks", "followUps", "prTitle"],
+  "required": ["status", "summary", "changes", "checks", "followUps", "commit"],
   "properties": {
     "status": {
       "type": "string",
@@ -40,9 +40,37 @@
       "description": "Anything deliberately left out of this change.",
       "items": { "type": "string" }
     },
-    "prTitle": {
-      "type": "string",
-      "description": "A short pull request title in the imperative mood."
+    "commit": {
+      "type": "object",
+      "description": "The Conventional Commits header for the commit and the pull request title: type(scope)!: summary.",
+      "additionalProperties": false,
+      "required": ["type", "scope", "summary", "breaking", "breakingChange"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["feat", "fix", "refactor", "perf", "test", "docs", "ci", "chore"],
+          "description": "feat: new capability. fix: bug fix. refactor: no behaviour change. perf: performance. test: tests only. docs: docs only. ci: CI workflows. chore: maintenance and tooling."
+        },
+        "scope": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]*$",
+          "description": "The area changed, lowercase, for example api, android, db, infra, tasks."
+        },
+        "summary": {
+          "type": "string",
+          "pattern": "^[a-z0-9].*[^.]$",
+          "maxLength": 72,
+          "description": "Short imperative summary, lowercase start, no trailing period, for example add optional due dates to tasks."
+        },
+        "breaking": {
+          "type": "boolean",
+          "description": "True when the change breaks existing callers, data or behaviour (adds ! to the header)."
+        },
+        "breakingChange": {
+          "type": "string",
+          "description": "When breaking: what breaks and what to do about it (the BREAKING CHANGE footer). Empty otherwise."
+        }
+      }
     }
   }
 }

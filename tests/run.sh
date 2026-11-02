@@ -97,6 +97,9 @@ check_render plan-with-questions "$(jq -r -f "$scripts/render-plan.jq" "$fixture
 check_render plan-ready "$(jq -r -f "$scripts/render-plan.jq" "$fixtures/plan-ready.json")"
 check_render pr-body "$(jq -r --arg issue 12 -f "$scripts/render-pr-body.jq" "$fixtures/build-report.json")"
 check_render review "$(jq -s -r --arg sha 3f9c2e1a7b -f "$scripts/render-review.jq" "$fixtures"/review/*.json)"
+check_render commit-message "$(jq -r --arg issue 12 -f "$scripts/commit-message.jq" "$fixtures/build-report.json")"
+check_render commit-message-breaking "$(jq '.commit.breaking = true | .commit.breakingChange = "GET /tasks no longer sorts by creation time first."' "$fixtures/build-report.json" \
+  | jq -r --arg issue 12 -f "$scripts/commit-message.jq")"
 check_render issue-context "$(jq -r -f "$scripts/issue-context.jq" "$fixtures/issue-view.json")"
 
 echo "Examples"
@@ -126,6 +129,15 @@ if grep -q "high · correctness, tests" <<< "$review"; then
 else
   fail "a merged finding keeps the highest severity and every lens"
 fi
+
+# The header check in open-pr.sh, against good and bad headers.
+header_pattern="$(sed -n "s/^header_pattern='\\(.*\\)'$/\\1/p" "$scripts/open-pr.sh")"
+for good in "feat(tasks): add optional due dates to tasks" "fix(api)!: reject past due dates" "ci(infra): include lease-documents stack"; do
+  if [[ "$good" =~ $header_pattern ]]; then pass "accepts: $good"; else fail "accepts: $good"; fi
+done
+for bad in "Add due dates" "feat: add due dates" "feat(Tasks): add due dates" "feat(tasks): Add due dates" "feat(tasks): add due dates." "feature(tasks): add due dates"; do
+  if [[ "$bad" =~ $header_pattern ]]; then fail "rejects: $bad"; else pass "rejects: $bad"; fi
+done
 
 echo "Installer"
 tmp="$(mktemp -d)"

@@ -1,4 +1,4 @@
-_Pull request description written by the pipeline: **Add optional due dates to tasks**._
+_Pull request description written by the pipeline. Title: **feat(tasks): add optional due dates to tasks**._
 
 <!-- ai-pipeline:pr -->
 Closes #12

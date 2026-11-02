@@ -37,5 +37,16 @@ A blocked report goes back to the requester on the issue. That is better than a 
 
 ## Output
 
-Return the structured build report (`status`, `summary`, `changes`, `checks`, `followUps`, `prTitle`). `summary`
+Return the structured build report (`status`, `summary`, `changes`, `checks`, `followUps`, `commit`). `summary`
 becomes the pull request description, so write it for a reviewer.
+
+`commit` is the [Conventional Commits](https://www.conventionalcommits.org) header the workflow builds the commit
+message and pull request title from: `type(scope)!: summary`.
+
+- `type`: `feat` (new capability), `fix` (bug fix), `refactor` (no behaviour change), `perf`, `test` (tests only),
+  `docs` (docs only), `ci` (CI workflows), `chore` (maintenance, tooling).
+- `scope`: the area changed, lowercase (for example `api`, `android`, `db`).
+- `summary`: imperative, lowercase start, no trailing period, at most 72 characters
+  (`add optional due dates to tasks`, not `Added due dates.`).
+- `breaking` / `breakingChange`: set when existing callers, data or behaviour break, and say what breaks and what to
+  do about it; the header gets a `!` and the message a `BREAKING CHANGE:` footer.

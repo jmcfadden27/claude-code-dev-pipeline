@@ -10,5 +10,11 @@
   ],
   "checks": { "ran": true, "passed": true, "notes": "Lint and 58 tests passed on the second run (first run: one ordering test failed, fixed)." },
   "followUps": ["Show due dates in the web client"],
-  "prTitle": "Add optional due dates to tasks"
+  "commit": {
+    "type": "feat",
+    "scope": "tasks",
+    "summary": "add optional due dates to tasks",
+    "breaking": false,
+    "breakingChange": ""
+  }
 }

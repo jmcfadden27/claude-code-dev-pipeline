@@ -23,6 +23,18 @@ agents read it on every run.
 - Example: follow the patterns of the surrounding code; match its naming and comment density.
 - Example: every behaviour change comes with a test.
 
+## Commit messages
+
+[Conventional Commits](https://www.conventionalcommits.org): `type(scope): summary`, for example
+`feat(api): add optional due dates to tasks`.
+
+- Types: `feat` (new capability), `fix` (bug fix), `refactor` (no behaviour change), `perf`, `test` (tests only),
+  `docs` (docs only), `ci` (CI workflows), `chore` (maintenance, tooling).
+- Scope: the area changed, lowercase (for example `api`, `android`, `db`, `infra`).
+- Summary: imperative, lowercase start, no trailing period, at most 72 characters.
+- Breaking change: `!` after the scope (`feat(api)!: ...`) and a `BREAKING CHANGE: ...` footer.
+- Footers: `Closes #123` or `Refs: #123`.
+
 ## Never
 
 - Commit secrets, tokens or credentials.

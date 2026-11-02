@@ -60,7 +60,7 @@ converges instead of starting over.
 | Trigger | `issues.labeled` with `ai:approved` (the label is the approval) |
 | Precondition | the issue has at least one plan comment |
 | Agent | `/pipeline-build` · tools `Read, Glob, Grep, Edit, Write, Bash(./pipeline/scripts/run-checks.sh)` · 120 turns · 60-minute job |
-| Output | [`build-report.schema.json`](../templates/pipeline/schemas/build-report.schema.json): status, summary, changes, checks, followUps, prTitle |
+| Output | [`build-report.schema.json`](../templates/pipeline/schemas/build-report.schema.json): status, summary, changes, checks, followUps, commit (Conventional Commits header) |
 | Effect | checks run again by the workflow → branch `ai/issue-N-<timestamp>` → commit → pull request that closes the issue |
 
 ```mermaid
