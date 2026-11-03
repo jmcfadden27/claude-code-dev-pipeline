@@ -40,8 +40,9 @@ Using the build stage as the example; plan and review work the same way.
    tools in `--allowedTools`, and must finish with JSON matching the schema given in `--json-schema`. The action
    validates it and exposes it as the step output `structured_output`.
 5. **Scripts act on the answer.** Later steps receive that JSON through an environment variable
-   (`REPORT_JSON: ${{ steps.claude.outputs.structured_output }}`) and do the work with side effects: `open-pr.sh`
-   checks `status`, builds the commit message, commits, pushes and opens the pull request.
+   (`REPORT_JSON: ${{ steps.claude.outputs.structured_output }}`). In the build stage, `commit-change.sh` checks
+   `status`, builds the commit message and commits locally, and the commits go to a separate **publish** job (a fresh
+   runner, the only one with write access), whose `publish.sh` pushes and opens or comments on the pull request.
 
 In one line: **event → workflow `if:` → scripts prepare files → Claude reads them and returns JSON in a fixed
 shape → scripts act on the JSON.** Claude never calls GitHub; it reads and edits files on the runner and answers.
@@ -83,7 +84,7 @@ stateDiagram-v2
 | | |
 | --- | --- |
 | Trigger | `issues.labeled` with `ai:plan`, or an issue comment starting with `/plan` |
-| Agent | `/pipeline-plan` · tools `Read, Glob, Grep` · 40 turns · 20-minute job |
+| Agent | `/pipeline-plan` · tools `Read, Glob, Grep` · 60 turns · 30-minute job (adjustable) |
 | Output | [`plan.schema.json`](../templates/pipeline/schemas/plan.schema.json): summary, approach, steps, files, risks, questions, readyToBuild |
 | Effect | a plan comment (marked `<!-- ai-pipeline:plan -->`); label `ai:needs-answers` or `ai:plan-ready` |
 
@@ -97,9 +98,13 @@ converges instead of starting over.
 | --- | --- |
 | Trigger | `issues.labeled` with `ai:approved`, or an issue comment starting with `/approve` (either is the approval) |
 | Precondition | the issue has at least one plan comment |
-| Agent | `/pipeline-build` · tools `Read, Glob, Grep, Edit, Write, Bash(./pipeline/scripts/run-checks.sh)` · 120 turns · 60-minute job |
+| Agent | `/pipeline-build` · tools `Read, Glob, Grep, Edit, Write, Bash(./pipeline/scripts/run-checks.sh)` · 200 turns · 120-minute job (adjustable) |
 | Output | [`build-report.schema.json`](../templates/pipeline/schemas/build-report.schema.json): status, summary, changes, checks, followUps, commit (Conventional Commits header) |
-| Effect | checks run again by the workflow → branch `ai/issue-N-<timestamp>` → commit → pull request that closes the issue |
+| Effect | checks run again by the workflow → `commit-change.sh` commits on branch `ai/issue-N-<timestamp>` and bundles it → the **publish** job (fresh runner, write access) pushes it and opens a pull request that closes the issue |
+
+The build job itself has read-only access to the repository: the agent and the checks (which run tests the agent
+wrote) never share a runner with a token that can push. The publish job reads only the bundle, the report and the
+metadata, and runs scripts from its own checkout of the default branch.
 
 ```mermaid
 flowchart LR
@@ -125,7 +130,7 @@ checks fail, the workflow stops and comments on the issue instead of opening a p
 | Before the agent | the pipeline's scripts and settings are copied from the default branch and used from there; `merge-base.sh` merges the latest base branch (a clean merge is committed, conflicts are left for the agent and listed in `.pipeline/conflicts.txt`; if the base changed workflow files it stops, since the workflow token can't push those); `snapshot-config.sh save` keeps the branch's `CLAUDE.md` / `.claude/`, which `claude-code-action` swaps for the default branch's copies on pull request events |
 | Agent | `/pipeline-fix` · same tools and limits as the build |
 | Output | `build-report.schema.json` |
-| Effect | `push-fix.sh`: restores the saved `CLAUDE.md` / `.claude/`; refuses to push while conflict markers remain; commits (Conventional Commits header from the report), pushes to the pull request's own branch, comments what changed; then the review runs again |
+| Effect | `commit-change.sh`: restores the saved `CLAUDE.md` / `.claude/`; refuses while conflict markers remain; commits (Conventional Commits header from the report) and bundles; then the publish job pushes to the pull request's own branch and comments what changed, and the review runs again |
 
 The same workflow runs build and fix, so the toolchain is configured once. It runs only on pull requests from the same
 repository.
@@ -136,7 +141,7 @@ repository.
 | --- | --- |
 | Trigger | called by the build workflow right after it opens or updates the pull request (`workflow_call`); or `pull_request.labeled` with `ai:review`, or a pull request comment starting with `/review`, to run again |
 | Jobs | `gate` → `review` (matrix of 4 lenses, `fail-fast: false`) → `summarize` |
-| Agent | `/pipeline-review <lens>` · tools `Read, Glob, Grep` · 40 turns · 30-minute job each |
+| Agent | `/pipeline-review <lens>` · tools `Read, Glob, Grep` · 60 turns · 30-minute job each (adjustable) |
 | Output | [`review-findings.schema.json`](../templates/pipeline/schemas/review-findings.schema.json): lens, verdict, findings (severity, file, line, title, detail, suggestion) |
 | Effect | one review comment on the pull request, edited in place on re-review |
 

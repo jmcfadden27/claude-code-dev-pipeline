@@ -120,10 +120,17 @@ remove it; skip it locally so developers' machines and databases are never touch
 
 ```bash
 if [[ "${CI:-}" == "true" ]]; then
-  docker run -d --rm --name checks-db -e POSTGRES_PASSWORD=checks -p 127.0.0.1::5432 postgres:16 > /dev/null
-  trap 'docker rm -f checks-db > /dev/null 2>&1 || true' EXIT
-  port="$(docker port checks-db 5432/tcp | head -n 1 | sed 's/.*://')"
-  for _ in $(seq 1 60); do docker exec checks-db pg_isready -h 127.0.0.1 > /dev/null 2>&1 && break; sleep 1; done
+  db="checks-db-$(date +%s)-$RANDOM"   # unique, so it never collides with another container
+  docker run -d --rm --name "$db" -e POSTGRES_PASSWORD=checks -p 127.0.0.1::5432 postgres:16 > /dev/null
+  trap 'docker rm -f "$db" > /dev/null 2>&1 || true' EXIT
+  port="$(docker port "$db" 5432/tcp | head -n 1 | sed 's/.*://')"
+  # Wait for TCP (Postgres restarts once during its first start); stop with a clear error if it never comes up.
+  ready=false
+  for _ in $(seq 1 90); do
+    if docker exec "$db" pg_isready -h 127.0.0.1 > /dev/null 2>&1; then ready=true; break; fi
+    sleep 1
+  done
+  if [[ "$ready" != "true" ]]; then echo "::error::Postgres did not start for the migration check."; exit 1; fi
   # apply your migrations to 127.0.0.1:$port, for example with Flyway:
   docker run --rm --network host -v "$PWD/db/migrations:/flyway/sql:ro" flyway/flyway:10 \
     -url="jdbc:postgresql://127.0.0.1:${port}/postgres" -user=postgres -password=checks migrate
@@ -362,8 +369,8 @@ claude-code-dev-pipeline/scripts/create-labels.sh <owner>/<repo>
 - **Your own CI on the pipeline's pull requests:** GitHub doesn't start workflows from pushes or pull requests made
   with the workflow token, so CI that runs on `pull_request` won't start by itself on the pipeline's pull requests.
   The pipeline already runs `run-checks.sh` twice per build. To also run your CI automatically, change
-  `open-pr.sh` and `push-fix.sh` to push with a token from a GitHub App you create (or a fine-grained token stored as
-  a secret) instead of `GITHUB_TOKEN`; or run your CI manually from the pull request.
+  `publish.sh` to push with a token from a GitHub App you create (or a fine-grained token stored as a secret) instead
+  of `GITHUB_TOKEN`; or run your CI manually from the pull request.
 
 ### Choosing the model and limits
 
@@ -405,7 +412,8 @@ Each stage posts **⏳ started · follow the run** on the issue or pull request 
 1. Add the label **`ai:approved`** to the issue, or comment **`/approve`**.
 2. **Actions** tab: an **AI Build** run appears. The **Build** step is Claude implementing the plan and running your
    checks until they pass; it's the longest step. Then **Run the checks again** (the pipeline verifying for itself)
-   and **Open the pull request**.
+   and **Commit the change for publishing**. A second job, **publish**, then pushes the branch and opens the pull
+   request (it's the only job with write access).
 3. When it finishes:
    - a pull request titled in the commit format, for example `test(dates): cover empty input in the date formatter`;
    - its description lists the changes, the checks and any follow-ups;
@@ -516,8 +524,15 @@ To read a run's details: **Actions** → the run → the failed job → expand t
 ## 15. Updating and removing
 
 **Updating** to a newer version of this repository: pull it, then compare its `templates/` with your repository.
-Copy over the files you haven't customised (everything except `run-checks.sh`, the toolchain section of
-`ai-build.yml` and your `CLAUDE.md`), run your checks, and commit.
+
+1. Copy over every file you haven't customised: everything except `pipeline/scripts/run-checks.sh`,
+   `.github/workflows/ai-build.yml` and your `CLAUDE.md`.
+2. `ai-build.yml`: take the new template and paste your toolchain section back into the marked step.
+3. `run-checks.sh`: keep your commands, but make its `if [[ "${CI:-}" == "true" ]]` block at the top match the
+   template's. That block keeps tokens away from the code the checks run.
+4. Delete pipeline files the new version no longer has (compare `pipeline/scripts/`, `.claude/skills/pipeline-*` and
+   `.github/workflows/ai-*.yml` with `templates/`).
+5. Run your checks, review the diff, and commit.
 
 **Pausing:** disable the workflows under **Actions** → workflow → **⋯ → Disable workflow**.
 

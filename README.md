@@ -20,7 +20,7 @@ review. This pipeline is built around those concerns rather than around the agen
 | --- | --- |
 | Building the wrong thing | A **plan stage** studies the code and posts a plan with questions on the issue. Nothing is built until a person approves it. |
 | Losing control | **A person starts the work** (a label or a `/command` to plan, a label to approve the build) and **merges every change**. The review runs automatically on the pull request the build opens. Agents never approve or merge. |
-| Agents with too much power | **Least privilege per stage**: the planner and reviewers can only read; the builder can edit files and run one script. No agent has git, GitHub or network tools. |
+| Agents with too much power | **Least privilege per stage**: the planner and reviewers can only read; the builder can edit files and run one script. No agent has git, GitHub or network tools, and the build job can't push: a separate publish job on a fresh runner does. |
 | "It works on my machine" | **Trust, but verify**: the builder runs the checks until they pass, then the workflow runs them again itself before it opens a pull request. |
 | Unstructured agent output | Every agent returns **JSON validated against a schema**. Deterministic workflow steps turn it into comments, labels, commits and pull requests. |
 | Review findings that never get fixed | **`/fix` on the pull request**: the agent brings the branch up to date (resolving conflicts), fixes the review's findings or what you ask, re-checks and pushes to the same pull request, and the review runs again. |
@@ -150,7 +150,7 @@ templates/                         copied into your repository by scripts/instal
 ├── pipeline/
 │   ├── claude-settings.json       deny rules for every agent run
 │   ├── schemas/                   JSON contracts for agent output
-│   └── scripts/                   deterministic glue (bash + jq): gate, context, render, post, open PR, merge, push fix
+│   └── scripts/                   deterministic glue (bash + jq): gate, context, merge, commit, publish, render, post
 └── CLAUDE.md.example              project rules every agent follows
 scripts/
 ├── install.sh                     copy the templates into a repository (never overwrites)

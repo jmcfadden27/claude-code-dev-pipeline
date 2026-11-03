@@ -19,7 +19,9 @@
       "Edit(./CLAUDE.md)",
       "Write(./CLAUDE.md)",
       "Read(//home/runner/work/_temp/secrets/**)",
-      "Read(./.git/**)"
+      "Read(./.git/**)",
+      "Edit(//home/runner/work/_temp/**)",
+      "Write(//home/runner/work/_temp/**)"
     ]
   },
   "env": {

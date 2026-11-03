@@ -78,11 +78,19 @@ full build and loses the review history.
 **Why:** a comment is quicker than the label menu (which only saves when it closes), works on mobile, leaves a visible
 record, and gives a way to stop a run that's going wrong.
 
+### 11. Build without write access, publish separately
+
+**Decision:** the build job (agent and checks) has read-only repository access and commits locally; a separate
+publish job on a fresh runner, the only one that can push, applies the bundled commits and opens or updates the pull
+request.
+**Why:** the checks run code the agent wrote. Anything sharing a runner with a write token could reach it, by
+changing later steps or the environment they inherit. Separating the jobs removes that path entirely.
+
 ## Known limits
 
 - **The repository's own CI doesn't start on the pipeline's pull requests.** GitHub doesn't start workflows from
   pushes made with `GITHUB_TOKEN`. The build stage runs the checks itself; to also run CI automatically, push with a
-  GitHub App token or a fine-grained token instead (`open-pr.sh` and `push-fix.sh`; see setup step 10).
+  GitHub App token or a fine-grained token instead (`publish.sh`; see setup step 10).
 - **Review is advisory.** The reviewers comment; they don't request changes through GitHub's review API or block a
   merge. Branch protection and the human reviewer do that.
 - **Single repository.** Changes that span repositories aren't supported.

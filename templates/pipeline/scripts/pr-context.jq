@@ -9,14 +9,14 @@ def verified: . as $l | $trusted | index($l) != null;
 def trusted_comment: (.author.login | verified) or (.authorAssociation | trusted) or (.author.login | pipeline);
 def trusted_inline: (.user.login | verified) or (.author_association | trusted) or (.user.login | pipeline);
 
-($pr.comments | map(select(trusted_comment and (.body | startswith("/fix")))) | last) as $request
+($pr.comments | map(select(trusted_comment and (.body | ascii_downcase | startswith("/fix")))) | last) as $request
 |
 "# Pull request #\($pr.number): \($pr.title)",
 "",
 "## What you were asked to fix",
 "",
 (if $request == null then "_(no /fix comment found)_"
- else ($request.body | sub("^/fix\\s*"; "") | if . == "" then "_(nothing specific: fix the AI review's findings)_" else . end)
+ else ($request.body | sub("^/[Ff][Ii][Xx]\\s*"; "") | if . == "" then "_(nothing specific: fix the AI review's findings)_" else . end)
  end),
 "",
 "## Description",

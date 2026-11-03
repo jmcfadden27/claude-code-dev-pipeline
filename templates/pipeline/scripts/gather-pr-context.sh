@@ -16,5 +16,11 @@ pr="$(gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json number,title,bo
 inline="$(gh api --paginate "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/comments" --jq '.[]' | jq -s .)"
 
 trusted="$( { jq -r '.comments[].author.login' <<< "$pr"; jq -r '.[].user.login' <<< "$inline"; } | "$(dirname "$0")/trusted-authors.sh")"
-jq -n -r --argjson pr "$pr" --argjson inline "$inline" --argjson trusted "$trusted" -f "$(dirname "$0")/pr-context.jq" > "$out"
+# Files, not arguments: a long pull request thread can exceed the size of one command-line argument.
+tmp="$(mktemp -d)"
+printf '%s' "$pr" > "$tmp/pr.json"
+printf '%s' "$inline" > "$tmp/inline.json"
+jq -n -r --slurpfile prs "$tmp/pr.json" --slurpfile inlines "$tmp/inline.json" --argjson trusted "$trusted" \
+  '$prs[0] as $pr | $inlines[0] as $inline | '"$(cat "$(dirname "$0")/pr-context.jq")" > "$out"
+rm -rf "$tmp"
 echo "Wrote $(wc -l < "$out") lines of pull request context to $out."

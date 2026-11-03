@@ -42,7 +42,7 @@ for f in "$schemas"/*.json "$fixtures"/*.json "$fixtures"/review/*.json "$root"/
 done
 for f in "$scripts"/*.jq; do
   # Compile only: wrap the program so it never runs.
-  if jq -n --arg sha x --arg issue 1 --arg kind x --arg pr 1 --argjson inline '[]' --argjson trusted '[]' "empty | ($(cat "$f")
+  if jq -n --arg sha x --arg issue 1 --arg kind x --arg pr 1 --arg note x --argjson inline '[]' --argjson trusted '[]' "empty | ($(cat "$f")
 )" > /dev/null 2>&1; then
     pass "jq compiles ${f#"$root"/}"
   else
@@ -97,11 +97,11 @@ check_render plan-with-questions "$(jq -r -f "$scripts/render-plan.jq" "$fixture
 check_render plan-ready "$(jq -r -f "$scripts/render-plan.jq" "$fixtures/plan-ready.json")"
 check_render pr-body "$(jq -r --arg issue 12 -f "$scripts/render-pr-body.jq" "$fixtures/build-report.json")"
 check_render review "$(jq -s -r --arg sha 3f9c2e1a7b -f "$scripts/render-review.jq" "$fixtures"/review/*.json)"
-check_render commit-message "$(jq -r --arg kind build --arg issue 12 --arg pr "" -f "$scripts/commit-message.jq" "$fixtures/build-report.json")"
+check_render commit-message "$(jq -r --arg kind build --arg issue 12 --arg pr "" --arg note "" -f "$scripts/commit-message.jq" "$fixtures/build-report.json")"
 check_render commit-message-breaking "$(jq '.commit.breaking = true | .commit.breakingChange = "GET /tasks no longer sorts by creation time first."' "$fixtures/build-report.json" \
-  | jq -r --arg kind build --arg issue 12 --arg pr "" -f "$scripts/commit-message.jq")"
+  | jq -r --arg kind build --arg issue 12 --arg pr "" --arg note "" -f "$scripts/commit-message.jq")"
 check_render commit-message-fix "$(jq '.commit.type = "fix" | .commit.summary = "compare due dates in utc"' "$fixtures/build-report.json" \
-  | jq -r --arg kind fix --arg issue 12 --arg pr 14 -f "$scripts/commit-message.jq")"
+  | jq -r --arg kind fix --arg issue 12 --arg pr 14 --arg note "Also brings in the latest main." -f "$scripts/commit-message.jq")"
 check_render pr-context "$(jq -n -r --argjson pr "$(cat "$fixtures/pr-view.json")" --argjson inline "$(cat "$fixtures/pr-inline-comments.json")" --argjson trusted '["jim"]' \
   -f "$scripts/pr-context.jq")"
 check_render issue-context "$(jq -r --argjson trusted '["jim"]' -f "$scripts/issue-context.jq" "$fixtures/issue-view.json")"
@@ -139,8 +139,8 @@ else
   fail "a merged finding keeps the highest severity and every lens"
 fi
 
-# The header check in open-pr.sh, against good and bad headers.
-header_pattern="$(sed -n "s/^header_pattern='\\(.*\\)'$/\\1/p" "$scripts/open-pr.sh")"
+# The header check in commit-change.sh, against good and bad headers.
+header_pattern="$(sed -n "s/^header_pattern='\\(.*\\)'$/\\1/p" "$scripts/commit-change.sh")"
 for good in "feat(tasks): add optional due dates to tasks" "fix(api)!: reject past due dates" "ci(infra): include lease-documents stack"; do
   if [[ "$good" =~ $header_pattern ]]; then pass "accepts: $good"; else fail "accepts: $good"; fi
 done
@@ -172,12 +172,45 @@ if (
 ) then pass "a clean base is merged before the agent runs"; else fail "a clean base is merged before the agent runs"; fi
 rm -rf "$tmp"
 
+echo "Commit for publishing"
+report_ok="$(jq -c . "$fixtures/build-report.json")"
+tmp="$(mktemp -d)"
+if (
+  cd "$tmp" && git init -q -b main && git config user.email t@t && git config user.name t
+  printf 'a\n' > f.txt && git add f.txt && git commit -q -m base && git update-ref refs/remotes/origin/main main
+  printf 'b\n' > g.txt
+  MODE=build REPORT_JSON="$report_ok" OUT="$tmp.out" ISSUE_NUMBER=12 BASE_REF=main "$scripts/commit-change.sh" > /dev/null
+  git bundle verify -q "$tmp.out/change.bundle" 2> /dev/null &&
+    [[ "$(jq -r .nothing "$tmp.out/meta.json")" == "false" ]] &&
+    [[ "$(jq -r .branch "$tmp.out/meta.json")" == ai/issue-12-* ]] &&
+    [[ "$(jq -r .title "$tmp.out/meta.json")" == "feat(tasks): add optional due dates to tasks" ]]
+); then pass "a build's change is committed and bundled for the publish job"; else fail "a build's change is committed and bundled for the publish job"; fi
+rm -rf "$tmp" "$tmp.out"
+tmp="$(mktemp -d)"
+if (
+  cd "$tmp" && git init -q -b main && git config user.email t@t && git config user.name t
+  printf 'a\n' > f.txt && git add f.txt && git commit -q -m base && git update-ref refs/remotes/origin/feature main
+  MODE=fix REPORT_JSON="$report_ok" OUT="$tmp.out" PR_NUMBER=14 HEAD_REF=feature BASE_REF=main RUNNER_TEMP="$tmp/rt" \
+    "$scripts/commit-change.sh" > /dev/null
+  [[ "$(jq -r .nothing "$tmp.out/meta.json")" == "true" ]] && [[ ! -e "$tmp.out/change.bundle" ]]
+); then pass "a fix with nothing to change produces no bundle"; else fail "a fix with nothing to change produces no bundle"; fi
+rm -rf "$tmp"
+tmp="$(mktemp -d)"
+if (
+  cd "$tmp" && git init -q -b main && git config user.email t@t && git config user.name t
+  printf 'a\n' > f.txt && git add f.txt && git commit -q -m base && git update-ref refs/remotes/origin/main main
+  printf 'b\n' > g.txt
+  ! MODE=build REPORT_JSON="$(jq -c '.status = "blocked"' "$fixtures/build-report.json")" OUT="$tmp.out" ISSUE_NUMBER=12 \
+    BASE_REF=main "$scripts/commit-change.sh" > /dev/null 2>&1
+); then pass "a blocked report commits nothing"; else fail "a blocked report commits nothing"; fi
+rm -rf "$tmp"
+
 echo "Installer"
 tmp="$(mktemp -d)"
 git init -q "$tmp"
 echo "# Existing rules" > "$tmp/CLAUDE.md"
 if "$root/scripts/install.sh" "$tmp" > /dev/null; then
-  if [[ -x "$tmp/pipeline/scripts/open-pr.sh" ]]; then pass "installs executable scripts"; else fail "installs executable scripts"; fi
+  if [[ -x "$tmp/pipeline/scripts/publish.sh" ]]; then pass "installs executable scripts"; else fail "installs executable scripts"; fi
   if [[ -f "$tmp/.github/workflows/ai-build.yml" ]]; then pass "installs the workflows"; else fail "installs the workflows"; fi
   if [[ "$(cat "$tmp/CLAUDE.md")" == "# Existing rules" ]]; then pass "keeps an existing CLAUDE.md"; else fail "keeps an existing CLAUDE.md"; fi
 else

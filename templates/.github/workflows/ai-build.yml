@@ -8,6 +8,11 @@
 # Either way the review stage then runs on the pull request.
 #
 # The agent edits files and may run only ./pipeline/scripts/run-checks.sh: no git, no GitHub, no network.
+#
+# Two jobs keep write access away from anything the agent touched: `build` (read-only repository access) runs the
+# agent and the checks and commits locally; `publish`, a fresh runner with write access, pushes the bundled commits and
+# opens or comments on the pull request. Code that runs in `build` (tests the agent wrote included) never shares a
+# runner with a token that can push.
 name: AI Build
 
 on:
@@ -23,10 +28,10 @@ on:
 concurrency:
   group: >-
     ai-build-${{ (
-      (github.event_name == 'issues' && github.event.label.name == 'ai:approved' && !github.event.issue.pull_request) ||
-      (github.event_name == 'issue_comment' && (
-        (!github.event.issue.pull_request && startsWith(github.event.comment.body, '/approve')) ||
-        (github.event.issue.pull_request && startsWith(github.event.comment.body, '/fix'))))
+    (github.event_name == 'issues' && github.event.label.name == 'ai:approved' && !github.event.issue.pull_request) ||
+    (github.event_name == 'issue_comment' && (
+    (!github.event.issue.pull_request && startsWith(github.event.comment.body, '/approve')) ||
+    (github.event.issue.pull_request && startsWith(github.event.comment.body, '/fix'))))
     ) && github.event.issue.number || format('skip-{0}', github.run_id) }}
   cancel-in-progress: false
 
@@ -39,15 +44,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: ${{ fromJSON(vars.PIPELINE_TIMEOUT_BUILD || '120') }}
     outputs:
-      pr: ${{ steps.open_pr.outputs.pr || steps.push_fix.outputs.pr }}
-      sha: ${{ steps.open_pr.outputs.sha || steps.push_fix.outputs.sha }}
+      mode: ${{ steps.target.outputs.mode }}
     permissions:
-      contents: write
-      pull-requests: write
+      contents: read        # no pushing from this job
+      pull-requests: write  # the "started" / failure comments
       issues: write
-      id-token: write
-    # GH_TOKEN is given only to the steps that call GitHub, never to the agent's step or the checks it runs, and the
-    # checkouts keep no git credentials: code the agent writes (tests included) can't reach GitHub.
+      id-token: write       # claude-code-action (and OIDC to your cloud, if your toolchain uses it)
+    # GH_TOKEN is given only to the steps that post comments, never to the agent's step or the checks it runs, and the
+    # checkouts keep no git credentials.
     env:
       NUMBER: ${{ github.event.issue.number }}
     steps:
@@ -57,6 +61,7 @@ jobs:
           persist-credentials: false
 
       - name: Check the requester may run the pipeline
+        id: gate
         run: ./pipeline/scripts/require-write-access.sh
         env:
           GH_TOKEN: ${{ github.token }}
@@ -128,7 +133,7 @@ jobs:
             "$scripts/gather-pr-context.sh"
             git diff "origin/${BASE_REF}...HEAD" > .pipeline/diff.patch
             # claude-code-action replaces these files with the default branch's copies on pull request events; keep the
-            # branch's own (after the merge) so the fix commit never reverts them (push-fix.sh puts them back).
+            # branch's own (after the merge) so the fix commit never reverts them (commit-change.sh puts them back).
             "$scripts/snapshot-config.sh" save
           fi
 
@@ -149,8 +154,6 @@ jobs:
       - name: Build or fix
         id: claude
         uses: anthropics/claude-code-action@v1
-        env:
-          CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1"  # strip credentials the action holds from commands the agent runs
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           settings: ${{ runner.temp }}/base/pipeline/claude-settings.json
@@ -166,44 +169,80 @@ jobs:
       - name: Run the checks again
         run: ./pipeline/scripts/run-checks.sh
 
-      - name: Open the pull request
-        if: steps.target.outputs.mode == 'build'
-        id: open_pr
-        run: "$RUNNER_TEMP/base/pipeline/scripts/open-pr.sh"
+      - name: Commit the change for publishing
+        run: "$RUNNER_TEMP/base/pipeline/scripts/commit-change.sh"
         env:
-          GH_TOKEN: ${{ github.token }}
+          OUT: ${{ runner.temp }}/out
+          MODE: ${{ steps.target.outputs.mode }}
           ISSUE_NUMBER: ${{ steps.target.outputs.issue }}
-          REPORT_JSON: ${{ steps.claude.outputs.structured_output }}
-          BASE_BRANCH: ${{ steps.target.outputs.base }}
-
-      - name: Push the fix to the pull request
-        if: steps.target.outputs.mode == 'fix'
-        id: push_fix
-        run: "$RUNNER_TEMP/base/pipeline/scripts/push-fix.sh"
-        env:
-          GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ steps.target.outputs.pr }}
           HEAD_REF: ${{ steps.target.outputs.ref }}
           BASE_REF: ${{ steps.target.outputs.base }}
-          ISSUE_NUMBER: ${{ steps.target.outputs.issue }}
           REPORT_JSON: ${{ steps.claude.outputs.structured_output }}
 
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pipeline-change
+          path: ${{ runner.temp }}/out/
+          retention-days: 3
+          overwrite: true
+
+      # Not when the requester was refused (a stranger's command gets no reply), and not when /cancel stopped the run
+      # (ai-cancel.yml says so).
       - name: Report a failure
-        if: failure() || cancelled()
+        if: failure() && steps.gate.outcome == 'success'
         run: |
-          scripts="$RUNNER_TEMP/base/pipeline/scripts"
-          [[ -x "$scripts/comment-failure.sh" ]] || scripts=./pipeline/scripts
-          "$scripts/comment-failure.sh"
+          "$RUNNER_TEMP/base/pipeline/scripts/comment-failure.sh"
         env:
           GH_TOKEN: ${{ github.token }}
           STAGE: ${{ steps.target.outputs.mode == 'fix' && 'fix' || 'build' }}
           REPORT_JSON: ${{ steps.claude.outputs.structured_output }}
 
+  # The only job that can push. A fresh runner: it reads the build job's bundle and report, and runs scripts from its
+  # own checkout of the default branch.
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      pr: ${{ steps.publish.outputs.pr }}
+      sha: ${{ steps.publish.outputs.sha }}
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+    env:
+      NUMBER: ${{ github.event.issue.number }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: pipeline-change
+          path: ${{ runner.temp }}/in
+
+      - name: Push and open or update the pull request
+        id: publish
+        run: ./pipeline/scripts/publish.sh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          IN: ${{ runner.temp }}/in
+
+      - name: Report a failure
+        if: failure()
+        run: ./pipeline/scripts/comment-failure.sh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          STAGE: ${{ needs.build.outputs.mode == 'fix' && 'fix (publish)' || 'build (publish)' }}
+
   # Review the pull request straight away (stage 3). Calling the workflow directly is needed because a pull request
   # opened or pushed with the workflow token doesn't start other workflows by itself.
   review:
-    needs: build
-    if: needs.build.outputs.pr != ''
+    needs: publish
+    if: needs.publish.outputs.pr != ''
     permissions:
       contents: read
       pull-requests: write
@@ -211,6 +250,6 @@ jobs:
       id-token: write
     uses: ./.github/workflows/ai-review.yml
     with:
-      pr: ${{ needs.build.outputs.pr }}
-      sha: ${{ needs.build.outputs.sha }}
+      pr: ${{ needs.publish.outputs.pr }}
+      sha: ${{ needs.publish.outputs.sha }}
     secrets: inherit

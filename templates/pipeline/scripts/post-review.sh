@@ -19,8 +19,8 @@ fi
 
 body="$(jq -s -r --arg sha "$HEAD_SHA" -f "$here/render-review.jq" "${files[@]}")"
 
-existing="$(gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" --paginate \
-  --jq '[.[] | select(.body | startswith("<!-- ai-pipeline:review -->"))] | last | .id // empty')"
+existing="$(gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" --paginate --jq '.[]' \
+  | jq -s -r '[.[] | select(.body | startswith("<!-- ai-pipeline:review -->"))] | last | .id // empty')"
 if [[ -n "$existing" ]]; then
   gh api -X PATCH "repos/${GITHUB_REPOSITORY}/issues/comments/${existing}" -f body="$body" > /dev/null
   echo "Updated the review comment."

@@ -28,8 +28,8 @@ on:
 concurrency:
   group: >-
     ai-review-${{ inputs.pr || (
-      (github.event_name == 'pull_request' && github.event.label.name == 'ai:review') ||
-      (github.event_name == 'issue_comment' && github.event.issue.pull_request && startsWith(github.event.comment.body, '/review'))
+    (github.event_name == 'pull_request' && github.event.label.name == 'ai:review') ||
+    (github.event_name == 'issue_comment' && github.event.issue.pull_request && startsWith(github.event.comment.body, '/review'))
     ) && (github.event.pull_request.number || github.event.issue.number) || format('skip-{0}', github.run_id) }}
   cancel-in-progress: true
 
@@ -62,6 +62,7 @@ jobs:
           persist-credentials: false
 
       - name: Check the requester may run the pipeline
+        id: allowed
         run: ./pipeline/scripts/require-write-access.sh
         env:
           ACTOR: ${{ github.actor }}
@@ -90,6 +91,14 @@ jobs:
         env:
           STAGE: Review
           NUMBER: ${{ steps.pr.outputs.number }}
+
+      - name: Report a failure on the pull request
+        if: failure() && steps.allowed.outcome == 'success'
+        run: ./pipeline/scripts/comment-failure.sh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          STAGE: review
+          NUMBER: ${{ inputs.pr || github.event.pull_request.number || github.event.issue.number }}
 
   review:
     # No GH_TOKEN in the job: only the context step calls GitHub.
@@ -138,8 +147,6 @@ jobs:
       - name: Review (${{ matrix.lens }})
         id: claude
         uses: anthropics/claude-code-action@v1
-        env:
-          CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1"
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           settings: pipeline/claude-settings.json
@@ -156,6 +163,7 @@ jobs:
           FINDINGS: ${{ steps.claude.outputs.structured_output }}
           LENS: ${{ matrix.lens }}
         run: |
+          if [[ -z "$FINDINGS" ]]; then echo "::error::The ${LENS} reviewer returned no findings."; exit 1; fi
           mkdir -p findings
           jq . <<< "$FINDINGS" > "findings/${LENS}.json"
 
@@ -163,6 +171,7 @@ jobs:
         with:
           name: findings-${{ matrix.lens }}
           path: findings/
+          overwrite: true
 
   summarize:
     needs: [gate, review]
