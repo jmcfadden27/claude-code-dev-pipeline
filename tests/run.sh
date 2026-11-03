@@ -350,6 +350,28 @@ if (
 ); then pass "a title that isn't a Conventional Commits header is refused"; else fail "a title that isn't a Conventional Commits header is refused"; fi
 rm -rf "$tmp" "$fakebin"
 
+echo "Review comment"
+# A stand-in gh: lists two earlier reviews (one the pipeline's, one a person's quote of it) and records what's posted.
+tmp="$(mktemp -d)"
+cat > "$tmp/gh" <<'GH'
+#!/usr/bin/env bash
+log="$(dirname "$0")/calls"
+if [[ "$1 $2" == "pr comment" ]]; then printf 'NEW %s\n' "${@: -1}" >> "$log"
+elif [[ "$1 $2" == "api -X" ]]; then printf 'PATCH %s %s\n' "$4" "$6" >> "$log"
+else echo '[{"id":1,"user":{"login":"github-actions[bot]"},"body":"<!-- ai-pipeline:review -->\nold findings"}]'
+     echo '[{"id":2,"user":{"login":"jim"},"body":"<!-- ai-pipeline:review -->\nquoted"}]'
+fi
+GH
+chmod +x "$tmp/gh"
+if (
+  PATH="$tmp:$PATH" FINDINGS_DIR="$fixtures/review" PR_NUMBER=14 HEAD_SHA=3f9c2e1a7b GITHUB_REPOSITORY=o/r GH_TOKEN=x \
+    "$scripts/post-review.sh" > /dev/null
+  grep -q "^NEW <!-- ai-pipeline:review -->" "$tmp/calls" &&
+    grep -q "^PATCH repos/o/r/issues/comments/1 body=<!-- ai-pipeline:review-outdated -->" "$tmp/calls" &&
+    ! grep -q "comments/2" "$tmp/calls"
+); then pass "a review is posted as a new comment and only the pipeline's earlier review is marked outdated"; else fail "a review is posted as a new comment and only the pipeline's earlier review is marked outdated"; cat "$tmp/calls"; fi
+rm -rf "$tmp"
+
 echo "Commands"
 gate() { env -i PATH="$PATH" ACTOR=jim GITHUB_REPOSITORY=o/r GH_TOKEN=x COMMAND=/plan COMMENT_BODY="$1" "$scripts/require-write-access.sh" > /dev/null 2>&1; }
 for bad in "/planning" "/approve" "please /plan" ""; do

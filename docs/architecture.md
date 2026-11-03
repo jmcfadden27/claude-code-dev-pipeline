@@ -159,7 +159,7 @@ repository.
 | Jobs | `gate` → `review` (matrix of 4 lenses, `fail-fast: false`) → `summarize` |
 | Agent | `/pipeline-review <lens>` · tools `Read, Glob, Grep` · 60 turns · 30-minute job each (adjustable) |
 | Output | [`review-findings.schema.json`](../templates/pipeline/schemas/review-findings.schema.json): lens, verdict, findings (severity, file, line, title, detail, suggestion) |
-| Effect | one review comment on the pull request, edited in place on re-review |
+| Effect | one review comment, posted at the bottom of the pull request; earlier AI reviews are marked outdated and folded away |
 
 The pull request's base branch is checked out at the root and its code in `pr/`. The prompts, settings and scripts
 therefore always come from the base branch, never from the pull request: it can't change how it is reviewed.

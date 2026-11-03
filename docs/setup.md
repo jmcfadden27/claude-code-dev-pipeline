@@ -413,7 +413,7 @@ Each stage posts **⏳ started · follow the run** on the issue or pull request 
 2. Either way the review is a **gate** job, four **review** jobs in parallel (correctness, security, tests,
    requirements) and a **summarize** job.
 3. The pull request gets one **🔍 AI review** comment: a verdict per lens and the findings ranked by severity.
-4. After changing the pull request, comment **`/review`** again; the same comment is updated.
+4. After changing the pull request, comment **`/review`** again. Each review posts a new comment at the bottom and folds the earlier ones away, marked outdated.
 
 ### 10.4 Fix (about 10–30 minutes)
 
