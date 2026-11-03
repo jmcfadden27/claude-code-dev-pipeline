@@ -25,5 +25,5 @@ if [[ -n "$existing" ]]; then
   gh api -X PATCH "repos/${GITHUB_REPOSITORY}/issues/comments/${existing}" -f body="$body" > /dev/null
   echo "Updated the review comment."
 else
-  gh pr comment "$PR_NUMBER" --body "$body"
+  gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body "$body"
 fi

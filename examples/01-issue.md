@@ -1,6 +1,6 @@
 # Issue #12 · [Change] Due dates on tasks
 
-_Opened with the **Change request (AI pipeline)** form. A maintainer adds the `ai:plan` label._
+_Opened with the **Change request (AI pipeline)** form. A maintainer comments `/plan`._
 
 ### Goal
 

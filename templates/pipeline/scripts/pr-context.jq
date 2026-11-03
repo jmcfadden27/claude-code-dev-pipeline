@@ -6,7 +6,9 @@ def trusted: . as $a | ["OWNER", "MEMBER", "COLLABORATOR"] | index($a) != null;
 def pipeline: IN("github-actions", "github-actions[bot]");
 # $trusted: logins verified to have write access (trusted-authors.sh).
 def verified: . as $l | $trusted | index($l) != null;
-def trusted_comment: (.author.login | verified) or (.authorAssociation | trusted) or (.author.login | pipeline);
+# Failure notices can carry text from the build job (code the agent wrote): never treat them as pipeline text.
+def pipeline_text: (.author.login | pipeline) and (.body | startswith("<!-- ai-pipeline:failed -->") | not);
+def trusted_comment: (.author.login | verified) or (.authorAssociation | trusted) or pipeline_text;
 def trusted_inline: (.user.login | verified) or (.author_association | trusted) or (.user.login | pipeline);
 
 ($pr.comments | map(select(trusted_comment and (.body | ascii_downcase | startswith("/fix")))) | last) as $request

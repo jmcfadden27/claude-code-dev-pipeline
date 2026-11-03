@@ -2,7 +2,7 @@
 # Writes the issue thread the agent works from to .pipeline/issue.md: the title, the request and the comments.
 #
 # The issue body is the request: a collaborator chose to run the pipeline on it, so review a stranger's issue before
-# labelling it. Comments reach the agent only from people with write access to the repository (checked through the
+# commenting /plan on it. Comments reach the agent only from people with write access to the repository (checked through the
 # API), repository owners, members and collaborators, or the pipeline itself (github-actions, whose comments carry
 # the plan). Anything else is replaced by a note, so text from strangers
 # can't steer the agent (prompt injection).

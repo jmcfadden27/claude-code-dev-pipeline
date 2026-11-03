@@ -34,5 +34,5 @@ def numbered: if length == 0 then "_None._" else to_entries | map("\(.key + 1). 
 else
   "### ✅ Ready to build",
   "",
-  "_Comment `/approve` (or add the `ai:approved` label) to build this plan._"
+  "_Comment `/approve` to build this plan._"
 end)

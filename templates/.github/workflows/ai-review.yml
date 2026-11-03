@@ -1,6 +1,6 @@
 # Stage 3 — Review.
-# Trigger: automatically after the build stage opens a pull request (ai-build.yml calls this workflow), or add the
-# `ai:review` label to a pull request / comment `/review` on it to review again.
+# Trigger: automatically after the build stage opens or updates a pull request (ai-build.yml calls this workflow), or
+# comment `/review` on a pull request to review again.
 # (A pull request opened by a workflow doesn't start other workflows by itself, so the build calls this one directly.)
 # Four independent reviewers run in parallel, one lens each (correctness, security, tests, requirements). None sees
 # the others' findings. A final job merges their findings into one comment on the pull request. Advisory only:
@@ -8,8 +8,6 @@
 name: AI Review
 
 on:
-  pull_request:
-    types: [labeled]
   issue_comment:
     types: [created]
   workflow_call:
@@ -23,21 +21,19 @@ on:
         type: string
         required: false
 
-# Only the stage's own command or label joins the pull request's group; every other comment gets a throwaway group, so
+# Only the stage's own command joins the pull request's group; every other comment gets a throwaway group, so
 # it can't cancel a review. (Groups are resolved before any job runs; the gate then refuses anyone without write access.)
 concurrency:
   group: >-
-    ai-review-${{ inputs.pr || (
-    (github.event_name == 'pull_request' && github.event.label.name == 'ai:review') ||
+    ai-review-${{ inputs.pr ||
     (github.event_name == 'issue_comment' && github.event.issue.pull_request && startsWith(github.event.comment.body, '/review'))
-    ) && (github.event.pull_request.number || github.event.issue.number) || format('skip-{0}', github.run_id) }}
+    && github.event.issue.number || format('skip-{0}', github.run_id) }}
   cancel-in-progress: true
 
 jobs:
   gate:
     if: >-
       inputs.pr ||
-      (github.event_name == 'pull_request' && github.event.label.name == 'ai:review') ||
       (github.event_name == 'issue_comment' && github.event.issue.pull_request && startsWith(github.event.comment.body, '/review'))
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -53,11 +49,10 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
-      # On pull_request events a plain checkout is the PR's merge commit; check out the base branch explicitly so the
-      # pipeline's own scripts never come from the pull request.
+      # The default branch, so the pipeline's own scripts never come from the pull request.
       - uses: actions/checkout@v6
         with:
-          ref: ${{ github.event.pull_request.base.ref || github.event.repository.default_branch }}
+          ref: ${{ github.event.repository.default_branch }}
           fetch-depth: 1
           persist-credentials: false
 
@@ -67,11 +62,14 @@ jobs:
         env:
           ACTOR: ${{ github.actor }}
           PIPELINE_ALLOWED_USERS: ${{ vars.PIPELINE_ALLOWED_USERS }}
+          # Only a /review comment is checked; a call from the build workflow has no command.
+          COMMAND: ${{ !inputs.pr && '/review' || '' }}
+          COMMENT_BODY: ${{ github.event.comment.body }}
 
       - name: Resolve the pull request (same repository only)
         id: pr
         env:
-          NUMBER: ${{ inputs.pr || github.event.pull_request.number || github.event.issue.number }}
+          NUMBER: ${{ inputs.pr || github.event.issue.number }}
           PUSHED_SHA: ${{ inputs.sha }}
         run: |
           pr="$(gh pr view "$NUMBER" --json number,headRefOid,baseRefName,isCrossRepository,closingIssuesReferences)"
@@ -98,7 +96,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           STAGE: review
-          NUMBER: ${{ inputs.pr || github.event.pull_request.number || github.event.issue.number }}
+          NUMBER: ${{ inputs.pr || github.event.issue.number }}
 
   review:
     # No GH_TOKEN in the job: only the context step calls GitHub.
@@ -113,7 +111,6 @@ jobs:
       contents: read
       pull-requests: read
       issues: read
-      id-token: write
     steps:
       # The base branch at the root: the review prompts, settings and scripts come from here, so a pull request can't
       # change how it is reviewed. The pull request's code goes in pr/, which the reviewers only read.
@@ -149,6 +146,8 @@ jobs:
         uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github_token: ${{ github.token }}  # the job's read-only token; no Claude GitHub App token is minted
+          classify_inline_comments: "false"  # the pipeline posts no inline comments; skip the action's step for them
           settings: pipeline/claude-settings.json
           prompt: /pipeline-review ${{ matrix.lens }}
           claude_args: >-

@@ -1,13 +1,11 @@
 # Stage 1 — Plan.
-# Trigger: add the `ai:plan` label to an issue, or comment `/plan` on it. To answer the plan's questions or change the
-# plan, reply in one comment that starts with `/plan`; a new `/plan` replaces a plan run still in progress.
+# Trigger: comment `/plan` on an issue. To answer the plan's questions or change the plan, reply in one comment that
+# starts with `/plan`; a new `/plan` replaces a plan run still in progress.
 # The agent reads the issue thread and the code, then the workflow posts its plan and questions on the issue.
 # The agent can only read: no edits, no shell, no GitHub access.
 name: AI Plan
 
 on:
-  issues:
-    types: [labeled]
   issue_comment:
     types: [created]
 
@@ -15,25 +13,18 @@ on:
 # plan in progress. (Groups are resolved before any job runs; the job then refuses anyone without write access.)
 concurrency:
   group: >-
-    ai-plan-${{ (
-    (github.event_name == 'issues' && github.event.label.name == 'ai:plan') ||
-    (github.event_name == 'issue_comment' && !github.event.issue.pull_request && startsWith(github.event.comment.body, '/plan'))
-    ) && github.event.issue.number || format('skip-{0}', github.run_id) }}
+    ai-plan-${{ (!github.event.issue.pull_request && startsWith(github.event.comment.body, '/plan'))
+    && github.event.issue.number || format('skip-{0}', github.run_id) }}
   cancel-in-progress: true
 
 jobs:
   plan:
-    if: >-
-      !github.event.issue.pull_request && (
-        (github.event_name == 'issues' && github.event.label.name == 'ai:plan') ||
-        (github.event_name == 'issue_comment' && startsWith(github.event.comment.body, '/plan'))
-      )
+    if: "!github.event.issue.pull_request && startsWith(github.event.comment.body, '/plan')"
     runs-on: ubuntu-latest
     timeout-minutes: ${{ fromJSON(vars.PIPELINE_TIMEOUT_PLAN || '30') }}
     permissions:
       contents: read
       issues: write
-      id-token: write
     # GH_TOKEN is given only to the steps that call GitHub, never to the agent's step.
     env:
       ISSUE_NUMBER: ${{ github.event.issue.number }}
@@ -50,6 +41,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           ACTOR: ${{ github.actor }}
           PIPELINE_ALLOWED_USERS: ${{ vars.PIPELINE_ALLOWED_USERS }}
+          COMMAND: /plan
+          COMMENT_BODY: ${{ github.event.comment.body }}
 
       - name: Say it started
         run: ./pipeline/scripts/post-started.sh
@@ -72,6 +65,8 @@ jobs:
         uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github_token: ${{ github.token }}  # the job's token; no Claude GitHub App token is minted
+          classify_inline_comments: "false"  # the pipeline posts no inline comments; skip the action's step for them
           settings: pipeline/claude-settings.json
           prompt: /pipeline-plan
           claude_args: >-
@@ -91,6 +86,31 @@ jobs:
       - name: Report a failure on the issue
         if: failure() && steps.gate.outcome == 'success'
         run: ./pipeline/scripts/comment-failure.sh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          STAGE: plan
+          NUMBER: ${{ github.event.issue.number }}
+
+  # A job stopped at its time limit ends as "cancelled", and its own failure step doesn't run: report that here.
+  # (A /cancel or a newer /plan cancels the whole run, so this stays quiet then.)
+  timed-out:
+    needs: plan
+    if: always() && !cancelled() && needs.plan.result == 'cancelled'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Report the time limit
+        run: |
+          echo "The plan job stopped at its time limit. Raise PIPELINE_TIMEOUT_PLAN, or narrow the request." > "$RUNNER_TEMP/failure-reason"
+          ./pipeline/scripts/comment-failure.sh
         env:
           GH_TOKEN: ${{ github.token }}
           STAGE: plan

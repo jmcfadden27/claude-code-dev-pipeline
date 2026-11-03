@@ -171,6 +171,28 @@ if (
   [[ ! -s .pipeline/conflicts.txt ]] && [[ -f h.txt ]]
 ) then pass "a clean base is merged before the agent runs"; else fail "a clean base is merged before the agent runs"; fi
 rm -rf "$tmp"
+tmp="$(mktemp -d)"
+if (
+  cd "$tmp" && git init -q -b main && git config user.email t@t && git config user.name t
+  printf '\x00a' > img.bin && git add img.bin && git commit -q -m base
+  git switch -q -c feature && printf '\x00feature' > img.bin && git commit -qam feature
+  git switch -q main && printf '\x00main' > img.bin && git commit -qam main
+  git switch -q feature && git update-ref refs/remotes/origin/main main
+  ! BASE_REF=main RUNNER_TEMP="$tmp" "$scripts/merge-base.sh" > /dev/null 2>&1 &&
+    [[ ! -f .git/MERGE_HEAD ]] && grep -q "binary files (img.bin)" "$tmp/failure-reason"
+) then pass "a binary conflict stops with a reason"; else fail "a binary conflict stops with a reason"; fi
+rm -rf "$tmp"
+tmp="$(mktemp -d)"
+if (
+  cd "$tmp" && git init -q -b main && git config user.email t@t && git config user.name t
+  printf 'a\n' > f.txt && git add f.txt && git commit -q -m base
+  git switch -q -c feature && printf 'feature\n' > f.txt && git commit -qam feature
+  git switch -q main && git rm -q f.txt && git commit -qm "delete f"
+  git switch -q feature && git update-ref refs/remotes/origin/main main
+  ! BASE_REF=main RUNNER_TEMP="$tmp" "$scripts/merge-base.sh" > /dev/null 2>&1 &&
+    [[ ! -f .git/MERGE_HEAD ]] && grep -q "deleted a file the other changed (f.txt)" "$tmp/failure-reason"
+) then pass "a delete/modify conflict stops with a reason"; else fail "a delete/modify conflict stops with a reason"; fi
+rm -rf "$tmp"
 
 echo "Commit for publishing"
 report_ok="$(jq -c . "$fixtures/build-report.json")"
@@ -181,8 +203,6 @@ if (
   printf 'b\n' > g.txt
   MODE=build REPORT_JSON="$report_ok" OUT="$tmp.out" ISSUE_NUMBER=12 BASE_REF=main "$scripts/commit-change.sh" > /dev/null
   git bundle verify -q "$tmp.out/change.bundle" 2> /dev/null &&
-    [[ "$(jq -r .nothing "$tmp.out/meta.json")" == "false" ]] &&
-    [[ "$(jq -r .branch "$tmp.out/meta.json")" == ai/issue-12-* ]] &&
     [[ "$(jq -r .title "$tmp.out/meta.json")" == "feat(tasks): add optional due dates to tasks" ]]
 ); then pass "a build's change is committed and bundled for the publish job"; else fail "a build's change is committed and bundled for the publish job"; fi
 rm -rf "$tmp" "$tmp.out"
@@ -192,9 +212,9 @@ if (
   printf 'a\n' > f.txt && git add f.txt && git commit -q -m base && git update-ref refs/remotes/origin/feature main
   MODE=fix REPORT_JSON="$report_ok" OUT="$tmp.out" PR_NUMBER=14 HEAD_REF=feature BASE_REF=main RUNNER_TEMP="$tmp/rt" \
     "$scripts/commit-change.sh" > /dev/null
-  [[ "$(jq -r .nothing "$tmp.out/meta.json")" == "true" ]] && [[ ! -e "$tmp.out/change.bundle" ]]
+  [[ ! -e "$tmp.out/change.bundle" ]] && [[ "$(jq -r .committed "$tmp.out/meta.json")" == "false" ]]
 ); then pass "a fix with nothing to change produces no bundle"; else fail "a fix with nothing to change produces no bundle"; fi
-rm -rf "$tmp"
+rm -rf "$tmp" "$tmp.out"
 tmp="$(mktemp -d)"
 if (
   cd "$tmp" && git init -q -b main && git config user.email t@t && git config user.name t
@@ -203,7 +223,144 @@ if (
   ! MODE=build REPORT_JSON="$(jq -c '.status = "blocked"' "$fixtures/build-report.json")" OUT="$tmp.out" ISSUE_NUMBER=12 \
     BASE_REF=main "$scripts/commit-change.sh" > /dev/null 2>&1
 ); then pass "a blocked report commits nothing"; else fail "a blocked report commits nothing"; fi
+rm -rf "$tmp" "$tmp.out"
+
+# A fix whose merge conflicted: markers left in a conflicted file block the commit; a `=======` line elsewhere doesn't.
+conflicted_fix() {
+  cd "$1" && git init -q -b main && git config user.email t@t && git config user.name t
+  printf 'Title\n=======\n' > README.md && printf 'a\nb\n' > f.txt && git add . && git commit -q -m base
+  git switch -q -c feature && printf 'a\nfeature\n' > f.txt && git commit -qam feature
+  git switch -q main && printf 'a\nmain\n' > f.txt && git commit -qam main
+  git switch -q feature && git update-ref refs/remotes/origin/main main && git update-ref refs/remotes/origin/feature feature
+  mkdir -p .pipeline "$1/rt" && echo ".pipeline/" >> .git/info/exclude
+  BASE_REF=main RUNNER_TEMP="$1/rt" "$scripts/merge-base.sh" > /dev/null
+}
+tmp="$(mktemp -d)"
+if (
+  conflicted_fix "$tmp"
+  : > .pipeline/conflicts.txt  # the agent emptying its copy of the list changes nothing
+  ! MODE=fix REPORT_JSON="$report_ok" OUT="$tmp.out" PR_NUMBER=14 HEAD_REF=feature BASE_REF=main RUNNER_TEMP="$tmp/rt" \
+    "$scripts/commit-change.sh" > /dev/null 2>&1 && grep -q "Unresolved merge conflicts remain in: f.txt" "$tmp/rt/failure-reason"
+); then pass "unresolved conflict markers block the fix, with a reason"; else fail "unresolved conflict markers block the fix, with a reason"; fi
+rm -rf "$tmp" "$tmp.out"
+tmp="$(mktemp -d)"
+if (
+  conflicted_fix "$tmp"
+  printf 'a\nboth\n' > f.txt
+  MODE=fix REPORT_JSON="$report_ok" OUT="$tmp.out" PR_NUMBER=14 HEAD_REF=feature BASE_REF=main RUNNER_TEMP="$tmp/rt" \
+    "$scripts/commit-change.sh" > /dev/null 2>&1 && git bundle verify -q "$tmp.out/change.bundle" 2> /dev/null
+); then pass "a resolved conflict commits, a heading underline elsewhere is fine"; else fail "a resolved conflict commits, a heading underline elsewhere is fine"; fi
+rm -rf "$tmp" "$tmp.out"
+
+echo "Publish"
+# A stand-in gh: `pr create` prints a pull request URL; everything else succeeds quietly.
+fakebin="$(mktemp -d)"
+cat > "$fakebin/gh" <<'GH'
+#!/usr/bin/env bash
+if [[ "$1 $2" == "pr create" ]]; then echo "https://github.com/o/r/pull/7"; fi
+GH
+chmod +x "$fakebin/gh"
+# Sets up $1/remote.git (main, feature), a build in $1/work, and a fresh clone in $1/pub for the publish job.
+publish_setup() {
+  local t="$1"
+  git init -q --bare -b main "$t/remote.git"
+  git clone -q "$t/remote.git" "$t/seed" 2> /dev/null
+  (cd "$t/seed" && git config user.email t@t && git config user.name t &&
+    printf 'a\n' > f.txt && git add f.txt && git commit -q -m base && git push -q origin main &&
+    git switch -q -c feature && printf 'x\n' > x.txt && git add x.txt && git commit -q -m feature && git push -q origin feature)
+  git clone -q "$t/remote.git" "$t/work" 2> /dev/null
+  git clone -q "$t/remote.git" "$t/pub" 2> /dev/null
+}
+publish() { # dir, then env assignments
+  local dir="$1"; shift
+  (cd "$dir" && env PATH="$fakebin:$PATH" GH_TOKEN=x GITHUB_REPOSITORY=o/r GITHUB_RUN_ID=99 RUNNER_TEMP="$dir/rt" \
+    PIPELINE_PUSH_URL="$(cd "$dir/../remote.git" && pwd)" GITHUB_OUTPUT="$dir/out.txt" "$@" "$scripts/publish.sh")
+}
+tmp="$(mktemp -d)"
+if (
+  publish_setup "$tmp"
+  cd "$tmp/work" && git config user.email t@t && git config user.name t && printf 'b\n' > g.txt
+  MODE=build REPORT_JSON="$report_ok" OUT="$tmp/in" ISSUE_NUMBER=12 BASE_REF=main "$scripts/commit-change.sh" > /dev/null
+  # Whatever the build job claims, publish decides where the commits go.
+  jq '. + {branch: "main", mode: "fix", pr: "3"}' "$tmp/in/meta.json" > "$tmp/m" && mv "$tmp/m" "$tmp/in/meta.json"
+  mkdir -p "$tmp/pub/rt"
+  base_sha="$(git -C "$tmp/seed" rev-parse main)"
+  # main moves on while the build runs.
+  (cd "$tmp/seed" && git switch -q main && printf 'n\n' > n.txt && git add n.txt && git commit -q -m newer && git push -q origin main)
+  git -C "$tmp/pub" fetch -q origin
+  publish "$tmp/pub" IN="$tmp/in" MODE=build ISSUE_NUMBER=12 BASE_REF=main BASE_SHA="$base_sha" > /dev/null
+  [[ "$(git -C "$tmp/remote.git" rev-parse ai/issue-12-99-1)" == "$(git -C "$tmp/work" rev-parse HEAD)" ]] &&
+    [[ "$(git -C "$tmp/remote.git" rev-parse main)" == "$(git -C "$tmp/seed" rev-parse main)" ]] &&
+    grep -q "^pr=7$" "$tmp/pub/out.txt"
+); then pass "a build is pushed to a new branch chosen by publish, never where the artifact says, even after main moved"; else fail "a build is pushed to a new branch chosen by publish, never where the artifact says, even after main moved"; fi
 rm -rf "$tmp"
+tmp="$(mktemp -d)"
+if (
+  publish_setup "$tmp"
+  cd "$tmp/work" && git config user.email t@t && git config user.name t
+  git switch -q --orphan other && printf 'z\n' > z.txt && git add z.txt && git commit -q -m other
+  git branch -f pipeline-result HEAD && mkdir -p "$tmp/in" && git bundle create -q "$tmp/in/change.bundle" pipeline-result 2> /dev/null
+  echo '{"title":"feat(x): add y"}' > "$tmp/in/meta.json" && printf '%s' "$report_ok" > "$tmp/in/report.json"
+  mkdir -p "$tmp/pub/rt"
+  ! publish "$tmp/pub" IN="$tmp/in" MODE=build ISSUE_NUMBER=12 BASE_REF=main BASE_SHA="$(git -C "$tmp/seed" rev-parse main)" > /dev/null 2>&1 &&
+    ! git -C "$tmp/remote.git" rev-parse -q --verify ai/issue-12-99-1 > /dev/null && grep -q "don't sit on top of" "$tmp/pub/rt/failure-reason"
+); then pass "commits that don't sit on the base are refused"; else fail "commits that don't sit on the base are refused"; fi
+rm -rf "$tmp"
+tmp="$(mktemp -d)"
+if (
+  publish_setup "$tmp"
+  cd "$tmp/work" && git config user.email t@t && git config user.name t && printf 'b\n' > g.txt
+  MODE=build REPORT_JSON="$report_ok" OUT="$tmp/in" ISSUE_NUMBER=12 BASE_REF=main "$scripts/commit-change.sh" > /dev/null
+  git -C "$tmp/seed" push -q origin main:refs/heads/ai/issue-12-99-1
+  mkdir -p "$tmp/pub/rt"
+  ! publish "$tmp/pub" IN="$tmp/in" MODE=build ISSUE_NUMBER=12 BASE_REF=main BASE_SHA="$(git -C "$tmp/seed" rev-parse main)" > /dev/null 2>&1 &&
+    [[ "$(git -C "$tmp/remote.git" rev-parse ai/issue-12-99-1)" == "$(git -C "$tmp/seed" rev-parse main)" ]]
+); then pass "a build never overwrites an existing branch"; else fail "a build never overwrites an existing branch"; fi
+rm -rf "$tmp"
+tmp="$(mktemp -d)"
+if (
+  publish_setup "$tmp"
+  cd "$tmp/work" && git config user.email t@t && git config user.name t && git switch -q feature && printf 'y\n' > y.txt
+  MODE=fix REPORT_JSON="$report_ok" OUT="$tmp/in" PR_NUMBER=14 HEAD_REF=feature BASE_REF=main RUNNER_TEMP="$tmp/rt" \
+    "$scripts/commit-change.sh" > /dev/null
+  mkdir -p "$tmp/pub/rt"
+  publish "$tmp/pub" IN="$tmp/in" MODE=fix PR_NUMBER=14 HEAD_REF=feature BASE_REF=main > /dev/null
+  [[ "$(git -C "$tmp/remote.git" rev-parse feature)" == "$(git -C "$tmp/work" rev-parse HEAD)" ]] && grep -q "^pr=14$" "$tmp/pub/out.txt"
+); then pass "a fix is pushed to the pull request's branch"; else fail "a fix is pushed to the pull request's branch"; fi
+rm -rf "$tmp"
+tmp="$(mktemp -d)"
+if (
+  publish_setup "$tmp"
+  cd "$tmp/work" && git config user.email t@t && git config user.name t && mkdir -p .github/workflows && printf 'x\n' > .github/workflows/ci.yml
+  MODE=build REPORT_JSON="$report_ok" OUT="$tmp/in" ISSUE_NUMBER=12 BASE_REF=main "$scripts/commit-change.sh" > /dev/null
+  mkdir -p "$tmp/pub/rt"
+  ! publish "$tmp/pub" IN="$tmp/in" MODE=build ISSUE_NUMBER=12 BASE_REF=main BASE_SHA="$(git -C "$tmp/seed" rev-parse main)" > /dev/null 2>&1 &&
+    grep -q "touches workflow files (.github/workflows/ci.yml)" "$tmp/pub/rt/failure-reason"
+); then pass "a change to workflow files is refused with a reason"; else fail "a change to workflow files is refused with a reason"; fi
+rm -rf "$tmp"
+tmp="$(mktemp -d)"
+if (
+  publish_setup "$tmp"
+  cd "$tmp/work" && git config user.email t@t && git config user.name t && printf 'b\n' > g.txt
+  MODE=build REPORT_JSON="$report_ok" OUT="$tmp/in" ISSUE_NUMBER=12 BASE_REF=main "$scripts/commit-change.sh" > /dev/null
+  echo '{"title":"Update everything @someone"}' > "$tmp/in/meta.json"
+  mkdir -p "$tmp/pub/rt"
+  ! publish "$tmp/pub" IN="$tmp/in" MODE=build ISSUE_NUMBER=12 BASE_REF=main BASE_SHA="$(git -C "$tmp/seed" rev-parse main)" > /dev/null 2>&1 &&
+    ! git -C "$tmp/remote.git" rev-parse -q --verify ai/issue-12-99-1 > /dev/null
+); then pass "a title that isn't a Conventional Commits header is refused"; else fail "a title that isn't a Conventional Commits header is refused"; fi
+rm -rf "$tmp" "$fakebin"
+
+echo "Commands"
+gate() { env -i PATH="$PATH" ACTOR=jim GITHUB_REPOSITORY=o/r GH_TOKEN=x COMMAND=/plan COMMENT_BODY="$1" "$scripts/require-write-access.sh" > /dev/null 2>&1; }
+for bad in "/planning" "/approve" "please /plan" ""; do
+  if gate "$bad"; then fail "rejects the comment: '$bad'"; else pass "rejects the comment: '$bad'"; fi
+done
+fakebin="$(mktemp -d)"
+printf '#!/usr/bin/env bash\necho write\n' > "$fakebin/gh" && chmod +x "$fakebin/gh"
+for good in "/plan" "/Plan" "/plan use UTC" $'/plan\nAnswers: yes'; do
+  if PATH="$fakebin:$PATH" gate "$good"; then pass "accepts the comment: '${good%%$'\n'*}'"; else fail "accepts the comment: '${good%%$'\n'*}'"; fi
+done
+rm -rf "$fakebin"
 
 echo "Installer"
 tmp="$(mktemp -d)"

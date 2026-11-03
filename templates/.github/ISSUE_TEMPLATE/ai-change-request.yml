@@ -1,5 +1,5 @@
 name: Change request (AI pipeline)
-description: Describe a change for the AI pipeline to plan. A maintainer adds `ai:plan` to start.
+description: Describe a change for the AI pipeline to plan. A maintainer comments `/plan` to start.
 title: "[Change] "
 body:
   - type: markdown

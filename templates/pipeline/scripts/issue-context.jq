@@ -6,7 +6,8 @@ def trusted_association: . as $a | ["OWNER", "MEMBER", "COLLABORATOR"] | index($
 def trusted_comment:
   (.author.login as $l | $trusted | index($l) != null)
   or (.authorAssociation | trusted_association)
-  or (.author.login | IN("github-actions", "github-actions[bot]"));
+  or ((.author.login | IN("github-actions", "github-actions[bot]"))
+      and (.body | startswith("<!-- ai-pipeline:failed -->") | not));
 
 "# Issue #\(.number): \(.title)",
 "",

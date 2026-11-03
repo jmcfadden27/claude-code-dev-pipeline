@@ -4,7 +4,7 @@ Short records of the choices behind the pipeline, with the alternatives consider
 
 ### 1. A person starts the work
 
-**Decision:** a label or `/plan` starts planning and a label approves the build; the review then runs automatically on
+**Decision:** a `/plan` comment starts planning and `/approve` approves the build; the review then runs automatically on
 the pull request the build opened, and can be re-run with `/review`. Nothing runs on push or on a schedule.
 **Why:** the expensive mistakes in AI-assisted development are building the wrong thing and merging something
 nobody understood. Explicit gates keep the requester in the loop at the two points that matter (plan approval and
@@ -72,11 +72,16 @@ again.
 **Why:** that is how a team works with a human reviewer. Starting over from a new plan for a one-line change wastes a
 full build and loses the review history.
 
-### 10. Commands for every step, and `/cancel`
+### 10. Comment commands start every step; labels only show status
 
-**Decision:** `/plan`, `/approve`, `/fix`, `/review` and `/cancel`, alongside the labels.
-**Why:** a comment is quicker than the label menu (which only saves when it closes), works on mobile, leaves a visible
-record, and gives a way to stop a run that's going wrong.
+**Decision:** `/plan`, `/approve`, `/fix`, `/review` and `/cancel` are the only way to start or stop a stage. The
+pipeline sets two status labels (`ai:needs-answers`, `ai:plan-ready`) that nobody adds by hand.
+**Why:** one way to do everything. A command can carry text (answers, what to fix), which a label can't; it can be
+repeated without removing and re-adding a label; it works on mobile; and each one leaves a visible record of who
+asked for what. It's the common pattern for multi-step bots on GitHub: Prow (`/lgtm`, `/approve`), Atlantis
+(`atlantis plan`, `atlantis apply`) and Dependabot (`@dependabot rebase`).
+**Alternative:** labels as triggers (an earlier version of this pipeline). Labels can't carry answers or fix
+requests, so commands were needed anyway, and having both meant two ways to do the same thing.
 
 ### 11. Build without write access, publish separately
 
@@ -84,13 +89,19 @@ record, and gives a way to stop a run that's going wrong.
 publish job on a fresh runner, the only one that can push, applies the bundled commits and opens or updates the pull
 request.
 **Why:** the checks run code the agent wrote. Anything sharing a runner with a write token could reach it, by
-changing later steps or the environment they inherit. Separating the jobs removes that path entirely.
+changing later steps or the environment they inherit. So the build job holds nothing that can push or comment: the
+agent's step gets the job's read-only token (`github_token`, so no Claude GitHub App token is minted), comments are
+posted by `prepare` and `report`, and the publish job takes where to push from `prepare`, never from the build job's
+artifact, and accepts only commits on top of that branch.
 
 ## Known limits
 
 - **The repository's own CI doesn't start on the pipeline's pull requests.** GitHub doesn't start workflows from
   pushes made with `GITHUB_TOKEN`. The build stage runs the checks itself; to also run CI automatically, push with a
-  GitHub App token or a fine-grained token instead (`publish.sh`; see setup step 10).
+  GitHub App token or a fine-grained token instead (`publish.sh`; see setup step 9).
+- **Workflow changes can't be merged into a pull request's branch by the pipeline.** GitHub doesn't let the workflow
+  token push changes under `.github/workflows/`. When the default branch's workflows changed after a pull request was
+  opened, `/fix` asks you to update the branch yourself first (setup, Troubleshooting).
 - **Review is advisory.** The reviewers comment; they don't request changes through GitHub's review API or block a
   merge. Branch protection and the human reviewer do that.
 - **Single repository.** Changes that span repositories aren't supported.

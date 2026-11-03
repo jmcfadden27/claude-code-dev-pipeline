@@ -1,5 +1,6 @@
 # Cancel a running stage: comment `/cancel` on the issue (stops its plan or build) or on the pull request (stops its
-# fix or review). Nothing half-done is pushed: commits and comments happen only after the agent finishes.
+# fix or review). The agent's work is pushed only by the build workflow's last jobs, so a cancel during the agent pushes
+# nothing; a cancel that lands while it publishes may leave the branch or pull request it was creating.
 #
 # How: each stage runs in a concurrency group named after its issue / pull request (ai-plan-N, ai-build-N,
 # ai-review-N). A job that joins those groups with cancel-in-progress: true cancels the run in them.
@@ -31,6 +32,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           ACTOR: ${{ github.actor }}
           PIPELINE_ALLOWED_USERS: ${{ vars.PIPELINE_ALLOWED_USERS }}
+          COMMAND: /cancel
+          COMMENT_BODY: ${{ github.event.comment.body }}
 
       - name: Acknowledge
         env:

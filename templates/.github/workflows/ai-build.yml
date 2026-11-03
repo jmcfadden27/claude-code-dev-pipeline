@@ -1,7 +1,7 @@
 # Stage 2 — Build, and Fix.
 #
-# Build: add the `ai:approved` label to an issue that has a plan, or comment `/approve` on it. The agent implements the
-#   approved plan; the workflow runs the checks again itself, commits, pushes a new branch and opens a pull request.
+# Build: comment `/approve` on an issue that has a plan. The agent implements the approved plan; the workflow runs the
+#   checks again itself, commits, pushes a new branch and opens a pull request.
 # Fix:   comment `/fix` on a pipeline pull request, optionally followed by what to change. The workflow brings the
 #   branch up to date with its base, the agent resolves any conflicts and fixes the review's findings and your
 #   comments, the workflow runs the checks again and pushes to the same pull request.
@@ -9,50 +9,52 @@
 #
 # The agent edits files and may run only ./pipeline/scripts/run-checks.sh: no git, no GitHub, no network.
 #
-# Two jobs keep write access away from anything the agent touched: `build` (read-only repository access) runs the
-# agent and the checks and commits locally; `publish`, a fresh runner with write access, pushes the bundled commits and
-# opens or comments on the pull request. Code that runs in `build` (tests the agent wrote included) never shares a
-# runner with a token that can push.
+# Write access is kept away from everything the agent touched:
+#   prepare  checks the requester, works out what to do, says it started (before any agent code exists)
+#   build    read-only: runs the agent and the checks, commits locally, hands the commits over as an artifact
+#   report   posts a build failure on the issue / pull request
+#   publish  a fresh runner, the only job that can push: checks the commits against what prepare decided, pushes,
+#            opens or comments on the pull request
+#   review   the review stage (ai-review.yml)
+# Code that runs in `build` (tests the agent wrote included) never has a token that can push or comment.
 name: AI Build
 
 on:
-  issues:
-    types: [labeled]
   issue_comment:
     types: [created]
 
 # One build or fix at a time per issue / pull request. `/cancel` stops a running one (ai-cancel.yml).
 # Only the stage's own commands join the issue's / pull request's group; every other comment gets a throwaway group, so
 # it can't queue behind or replace a build. (Groups are resolved before any job runs, so this can't check who wrote
-# the comment; the job then refuses anyone without write access.)
+# the comment; prepare then refuses anyone without write access.)
 concurrency:
   group: >-
     ai-build-${{ (
-    (github.event_name == 'issues' && github.event.label.name == 'ai:approved' && !github.event.issue.pull_request) ||
-    (github.event_name == 'issue_comment' && (
     (!github.event.issue.pull_request && startsWith(github.event.comment.body, '/approve')) ||
-    (github.event.issue.pull_request && startsWith(github.event.comment.body, '/fix'))))
+    (github.event.issue.pull_request && startsWith(github.event.comment.body, '/fix'))
     ) && github.event.issue.number || format('skip-{0}', github.run_id) }}
   cancel-in-progress: false
 
 jobs:
-  build:
+  prepare:
     if: >-
-      (github.event_name == 'issues' && github.event.label.name == 'ai:approved' && !github.event.issue.pull_request) ||
-      (github.event_name == 'issue_comment' && !github.event.issue.pull_request && startsWith(github.event.comment.body, '/approve')) ||
-      (github.event_name == 'issue_comment' && github.event.issue.pull_request && startsWith(github.event.comment.body, '/fix'))
+      (!github.event.issue.pull_request && startsWith(github.event.comment.body, '/approve')) ||
+      (github.event.issue.pull_request && startsWith(github.event.comment.body, '/fix'))
     runs-on: ubuntu-latest
-    timeout-minutes: ${{ fromJSON(vars.PIPELINE_TIMEOUT_BUILD || '120') }}
-    outputs:
-      mode: ${{ steps.target.outputs.mode }}
+    timeout-minutes: 5
     permissions:
-      contents: read        # no pushing from this job
+      contents: read
       pull-requests: write  # the "started" / failure comments
       issues: write
-      id-token: write       # claude-code-action (and OIDC to your cloud, if your toolchain uses it)
-    # GH_TOKEN is given only to the steps that post comments, never to the agent's step or the checks it runs, and the
-    # checkouts keep no git credentials.
+    outputs:
+      mode: ${{ steps.target.outputs.mode }}
+      pr: ${{ steps.target.outputs.pr }}
+      ref: ${{ steps.target.outputs.ref }}
+      base: ${{ steps.target.outputs.base }}
+      issue: ${{ steps.target.outputs.issue }}
+      base_sha: ${{ steps.target.outputs.base_sha }}
     env:
+      GH_TOKEN: ${{ github.token }}
       NUMBER: ${{ github.event.issue.number }}
     steps:
       - uses: actions/checkout@v6
@@ -64,63 +66,107 @@ jobs:
         id: gate
         run: ./pipeline/scripts/require-write-access.sh
         env:
-          GH_TOKEN: ${{ github.token }}
           ACTOR: ${{ github.actor }}
           PIPELINE_ALLOWED_USERS: ${{ vars.PIPELINE_ALLOWED_USERS }}
+          COMMAND: ${{ github.event.issue.pull_request && '/fix' || '/approve' }}
+          COMMENT_BODY: ${{ github.event.comment.body }}
+
+      - name: Work out what to do
+        id: target
+        env:
+          IS_PR: ${{ github.event.issue.pull_request != null }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          if [[ "$IS_PR" == "true" ]]; then
+            pr="$(gh pr view "$NUMBER" --repo "$GITHUB_REPOSITORY" \
+              --json number,state,headRefName,baseRefName,isCrossRepository,closingIssuesReferences)"
+            head="$(jq -r .headRefName <<< "$pr")"
+            base="$(jq -r .baseRefName <<< "$pr")"
+            if [[ "$(jq -r .state <<< "$pr")" != "OPEN" ]]; then
+              echo "This pull request is not open." > "$RUNNER_TEMP/failure-reason"
+              exit 1
+            fi
+            if [[ "$(jq -r .isCrossRepository <<< "$pr")" == "true" ]]; then
+              echo "Pull requests from forks are not changed by the pipeline." > "$RUNNER_TEMP/failure-reason"
+              exit 1
+            fi
+            if [[ "$head" == "$base" || "$head" == "$DEFAULT_BRANCH" ]]; then
+              echo "The pipeline doesn't push to ${head}." > "$RUNNER_TEMP/failure-reason"
+              exit 1
+            fi
+            {
+              echo "mode=fix"
+              echo "pr=$NUMBER"
+              echo "ref=$head"
+              echo "base=$base"
+              echo "issue=$(jq -r '.closingIssuesReferences[0].number // empty' <<< "$pr")"
+            } >> "$GITHUB_OUTPUT"
+          else
+            # Only the pipeline's own plan comments count.
+            plans="$(gh api "repos/${GITHUB_REPOSITORY}/issues/${NUMBER}/comments" --paginate \
+              --jq '[.[] | select(.user.login == "github-actions[bot]" and (.body | startswith("<!-- ai-pipeline:plan -->")))] | length' \
+              | jq -s add)"
+            if [[ "$plans" == "0" ]]; then
+              echo "There is no plan on this issue yet. Comment \`/plan\` first." > "$RUNNER_TEMP/failure-reason"
+              exit 1
+            fi
+            # The build starts from this exact commit, so the default branch can move on while it runs.
+            base_sha="$(git rev-parse HEAD)"
+            { echo "mode=build"; echo "ref=$base_sha"; echo "base=$DEFAULT_BRANCH"; echo "base_sha=$base_sha"; echo "issue=$NUMBER"; } >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Say it started
+        run: ./pipeline/scripts/post-started.sh
+        env:
+          STAGE: ${{ steps.target.outputs.mode == 'fix' && 'Fix' || 'Build' }}
+
+      # Not when the requester was refused: a stranger's command gets no reply.
+      - name: Report a failure
+        if: failure() && steps.gate.outcome == 'success'
+        run: ./pipeline/scripts/comment-failure.sh
+        env:
+          STAGE: ${{ github.event.issue.pull_request && 'fix' || 'build' }}
+
+  build:
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ fromJSON(vars.PIPELINE_TIMEOUT_BUILD || '120') }}
+    # Read-only. Everything after the agent's step may be influenced by code the agent wrote, so this job holds nothing
+    # that can push, comment or label. (If your toolchain signs in to a cloud with OIDC, add `id-token: write`; see
+    # docs/setup.md "Private packages and cloud credentials".)
+    permissions:
+      contents: read
+      pull-requests: read
+      issues: read
+    env:
+      MODE: ${{ needs.prepare.outputs.mode }}
+      ISSUE_NUMBER: ${{ needs.prepare.outputs.issue }}
+      PR_NUMBER: ${{ needs.prepare.outputs.pr }}
+      HEAD_REF: ${{ needs.prepare.outputs.ref }}
+      BASE_REF: ${{ needs.prepare.outputs.base }}
+      BASE_SHA: ${{ needs.prepare.outputs.base_sha }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+          persist-credentials: false
 
       # The pipeline's own scripts and settings always come from the default branch, never from a pull request's
       # branch (which may be older, or changed). Only run-checks.sh, the project's own checks, runs from the code.
       - name: Keep the pipeline's files from the default branch
         run: mkdir -p "$RUNNER_TEMP/base" && cp -r pipeline "$RUNNER_TEMP/base/"
 
-      - name: Work out what to do
-        id: target
-        env:
-          GH_TOKEN: ${{ github.token }}
-          IS_PR: ${{ github.event.issue.pull_request != null }}
-          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
-        run: |
-          if [[ "$IS_PR" == "true" ]]; then
-            pr="$(gh pr view "$NUMBER" --repo "$GITHUB_REPOSITORY" \
-              --json number,headRefName,baseRefName,isCrossRepository,closingIssuesReferences)"
-            if [[ "$(jq -r .isCrossRepository <<< "$pr")" == "true" ]]; then
-              echo "::error::Pull requests from forks are not changed by the pipeline."
-              exit 1
-            fi
-            {
-              echo "mode=fix"
-              echo "pr=$NUMBER"
-              echo "ref=$(jq -r .headRefName <<< "$pr")"
-              echo "base=$(jq -r .baseRefName <<< "$pr")"
-              echo "issue=$(jq -r '.closingIssuesReferences[0].number // empty' <<< "$pr")"
-            } >> "$GITHUB_OUTPUT"
-          else
-            gh issue view "$NUMBER" --repo "$GITHUB_REPOSITORY" --json comments \
-              --jq '[.comments[] | select(.body | startswith("<!-- ai-pipeline:plan -->"))] | length' \
-              | grep -qv '^0$' || { echo "::error::No plan on this issue yet. Add the ai:plan label first."; exit 1; }
-            { echo "mode=build"; echo "ref=$DEFAULT_BRANCH"; echo "base=$DEFAULT_BRANCH"; echo "issue=$NUMBER"; } >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Say it started
-        run: "$RUNNER_TEMP/base/pipeline/scripts/post-started.sh"
-        env:
-          GH_TOKEN: ${{ github.token }}
-          STAGE: ${{ steps.target.outputs.mode == 'fix' && 'Fix' || 'Build' }}
-
-      # The code to work on: the default branch for a build, the pull request's branch for a fix.
+      # The code to work on: the default branch's commit prepare recorded (build), or the pull request's branch (fix).
       - uses: actions/checkout@v6
         with:
-          ref: ${{ steps.target.outputs.ref }}
+          ref: ${{ needs.prepare.outputs.ref }}
           fetch-depth: 0
           persist-credentials: false
 
       - name: Gather the context
         env:
           GH_TOKEN: ${{ github.token }}
-          MODE: ${{ steps.target.outputs.mode }}
-          ISSUE_NUMBER: ${{ steps.target.outputs.issue }}
-          PR_NUMBER: ${{ steps.target.outputs.pr }}
-          BASE_REF: ${{ steps.target.outputs.base }}
         run: |
           mkdir -p .pipeline
           echo ".pipeline/" >> .git/info/exclude
@@ -139,31 +185,48 @@ jobs:
 
       # ── Your toolchain ──────────────────────────────────────────────────────────────────────────
       # Install what pipeline/scripts/run-checks.sh needs. For private package feeds or cloud credentials, see
-      # docs/setup.md "Private packages and cloud credentials". For example:
+      # docs/setup.md "Private packages and cloud credentials". Make dependency caches read-only here (code the agent
+      # wrote runs in this job). For example:
       #   - uses: actions/setup-node@v4
-      #     with: { node-version: 22, cache: npm }
+      #     with: { node-version: 22 }
       #   - uses: actions/setup-dotnet@v4
       #     with: { dotnet-version: 8.0.x }
       #   - uses: actions/setup-java@v4
-      #     with: { distribution: temurin, java-version: 17 }
+      #     with: { distribution: temurin, java-version: 21 }
+      #   - uses: gradle/actions/setup-gradle@v4
+      #     with: { cache-read-only: true }
 
       - name: Load the report schema
         id: schema
         run: echo "json=$(jq -c . "$RUNNER_TEMP/base/pipeline/schemas/build-report.schema.json")" >> "$GITHUB_OUTPUT"
 
+      # github_token: the job's own read-only token. Without it the action would mint a Claude GitHub App token that
+      # can push, and the agent's step (and the checks it runs) would hold it.
       - name: Build or fix
         id: claude
         uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github_token: ${{ github.token }}
+          classify_inline_comments: "false"  # the pipeline posts no inline comments; skip the action's step for them
           settings: ${{ runner.temp }}/base/pipeline/claude-settings.json
-          prompt: ${{ steps.target.outputs.mode == 'fix' && '/pipeline-fix' || '/pipeline-build' }}
+          prompt: ${{ needs.prepare.outputs.mode == 'fix' && '/pipeline-fix' || '/pipeline-build' }}
           claude_args: >-
             --model ${{ vars.PIPELINE_MODEL_BUILD || 'claude-opus-5-5' }}
             --max-turns ${{ vars.PIPELINE_MAX_TURNS_BUILD || '200' }}
             --allowedTools "Read,Glob,Grep,Edit,Write,Bash(./pipeline/scripts/run-checks.sh)"
             --disallowedTools "WebFetch,WebSearch,mcp__*"
             --json-schema '${{ steps.schema.outputs.json }}'
+
+      - name: Check the agent's report
+        env:
+          REPORT_JSON: ${{ steps.claude.outputs.structured_output }}
+        run: |
+          if [[ -z "$REPORT_JSON" ]]; then echo "::error::The agent returned no report."; exit 1; fi
+          if [[ "$(jq -r .status <<< "$REPORT_JSON")" != "implemented" ]]; then
+            echo "::error::The agent stopped: $(jq -r .summary <<< "$REPORT_JSON")"
+            exit 1
+          fi
 
       # Trust, but verify: the agent's report says the checks passed; the pipeline checks for itself.
       - name: Run the checks again
@@ -173,11 +236,6 @@ jobs:
         run: "$RUNNER_TEMP/base/pipeline/scripts/commit-change.sh"
         env:
           OUT: ${{ runner.temp }}/out
-          MODE: ${{ steps.target.outputs.mode }}
-          ISSUE_NUMBER: ${{ steps.target.outputs.issue }}
-          PR_NUMBER: ${{ steps.target.outputs.pr }}
-          HEAD_REF: ${{ steps.target.outputs.ref }}
-          BASE_REF: ${{ steps.target.outputs.base }}
           REPORT_JSON: ${{ steps.claude.outputs.structured_output }}
 
       - uses: actions/upload-artifact@v4
@@ -187,21 +245,68 @@ jobs:
           retention-days: 3
           overwrite: true
 
-      # Not when the requester was refused (a stranger's command gets no reply), and not when /cancel stopped the run
-      # (ai-cancel.yml says so).
-      - name: Report a failure
-        if: failure() && steps.gate.outcome == 'success'
+      # The report job (which can comment) posts these; this job can't.
+      - name: Keep the failure details
+        if: failure()
+        env:
+          REPORT_JSON: ${{ steps.claude.outputs.structured_output }}
         run: |
-          "$RUNNER_TEMP/base/pipeline/scripts/comment-failure.sh"
+          mkdir -p "$RUNNER_TEMP/failure"
+          if [[ -s "$RUNNER_TEMP/failure-reason" ]]; then cp "$RUNNER_TEMP/failure-reason" "$RUNNER_TEMP/failure/"; fi
+          printf '%s' "$REPORT_JSON" > "$RUNNER_TEMP/failure/report.json"
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: pipeline-failure
+          path: ${{ runner.temp }}/failure/
+          retention-days: 3
+          overwrite: true
+
+  # Posts a build or publish failure, including a job stopped at its time limit (GitHub reports that as cancelled).
+  # Not when the whole run was cancelled: /cancel (ai-cancel.yml says so).
+  report:
+    needs: [prepare, build, publish]
+    if: >-
+      always() && !cancelled() && needs.prepare.result == 'success' && (
+        needs.build.result == 'failure' || needs.build.result == 'cancelled' || needs.publish.result == 'cancelled'
+      )
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: pipeline-failure
+          path: ${{ runner.temp }}
+
+      - name: Report the failure
+        run: |
+          if [[ ! -s "$RUNNER_TEMP/failure-reason" && ( "$BUILD_RESULT" == "cancelled" || "$PUBLISH_RESULT" == "cancelled" ) ]]; then
+            echo "The job stopped at its time limit. Split the request, or raise PIPELINE_TIMEOUT_BUILD (see the setup guide)." \
+              > "$RUNNER_TEMP/failure-reason"
+          fi
+          ./pipeline/scripts/comment-failure.sh
         env:
           GH_TOKEN: ${{ github.token }}
-          STAGE: ${{ steps.target.outputs.mode == 'fix' && 'fix' || 'build' }}
-          REPORT_JSON: ${{ steps.claude.outputs.structured_output }}
+          NUMBER: ${{ github.event.issue.number }}
+          STAGE: ${{ needs.prepare.outputs.mode }}
+          BUILD_RESULT: ${{ needs.build.result }}
+          PUBLISH_RESULT: ${{ needs.publish.result }}
 
-  # The only job that can push. A fresh runner: it reads the build job's bundle and report, and runs scripts from its
-  # own checkout of the default branch.
+  # The only job that can push. A fresh runner: it takes the commits from the build job's artifact, but where they go
+  # (branch, pull request, issue) comes only from prepare, and the commits must sit on top of that branch.
   publish:
-    needs: build
+    needs: [prepare, build]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     outputs:
@@ -212,6 +317,7 @@ jobs:
       pull-requests: write
       issues: write
     env:
+      GH_TOKEN: ${{ github.token }}
       NUMBER: ${{ github.event.issue.number }}
     steps:
       - uses: actions/checkout@v6
@@ -228,15 +334,19 @@ jobs:
         id: publish
         run: ./pipeline/scripts/publish.sh
         env:
-          GH_TOKEN: ${{ github.token }}
           IN: ${{ runner.temp }}/in
+          MODE: ${{ needs.prepare.outputs.mode }}
+          ISSUE_NUMBER: ${{ needs.prepare.outputs.issue }}
+          PR_NUMBER: ${{ needs.prepare.outputs.pr }}
+          HEAD_REF: ${{ needs.prepare.outputs.ref }}
+          BASE_REF: ${{ needs.prepare.outputs.base }}
+          BASE_SHA: ${{ needs.prepare.outputs.base_sha }}
 
       - name: Report a failure
         if: failure()
         run: ./pipeline/scripts/comment-failure.sh
         env:
-          GH_TOKEN: ${{ github.token }}
-          STAGE: ${{ needs.build.outputs.mode == 'fix' && 'fix (publish)' || 'build (publish)' }}
+          STAGE: ${{ needs.prepare.outputs.mode }} (publish)
 
   # Review the pull request straight away (stage 3). Calling the workflow directly is needed because a pull request
   # opened or pushed with the workflow token doesn't start other workflows by itself.
@@ -247,7 +357,6 @@ jobs:
       contents: read
       pull-requests: write
       issues: write
-      id-token: write
     uses: ./.github/workflows/ai-review.yml
     with:
       pr: ${{ needs.publish.outputs.pr }}

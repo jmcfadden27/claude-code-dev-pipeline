@@ -19,8 +19,8 @@ review. This pipeline is built around those concerns rather than around the agen
 | Concern | How the pipeline handles it |
 | --- | --- |
 | Building the wrong thing | A **plan stage** studies the code and posts a plan with questions on the issue. Nothing is built until a person approves it. |
-| Losing control | **A person starts the work** (a label or a `/command` to plan, a label to approve the build) and **merges every change**. The review runs automatically on the pull request the build opens. Agents never approve or merge. |
-| Agents with too much power | **Least privilege per stage**: the planner and reviewers can only read; the builder can edit files and run one script. No agent has git, GitHub or network tools, and the build job can't push: a separate publish job on a fresh runner does. |
+| Losing control | **A person starts every stage** with a comment command (`/plan`, `/approve`, `/fix`, `/review`, `/cancel`) and **merges every change**. The review runs automatically on the pull request the build opens. Agents never approve or merge. |
+| Agents with too much power | **Least privilege per stage**: the planner and reviewers can only read; the builder can edit files and run one script. No agent has git, GitHub or network tools. The build job holds only a read-only token: a separate publish job on a fresh runner pushes, and decides where by itself. |
 | "It works on my machine" | **Trust, but verify**: the builder runs the checks until they pass, then the workflow runs them again itself before it opens a pull request. |
 | Unstructured agent output | Every agent returns **JSON validated against a schema**. Deterministic workflow steps turn it into comments, labels, commits and pull requests. |
 | Review findings that never get fixed | **`/fix` on the pull request**: the agent brings the branch up to date (resolving conflicts), fixes the review's findings or what you ask, re-checks and pushes to the same pull request, and the review runs again. |
@@ -38,8 +38,8 @@ sequenceDiagram
     participant WF as Workflow steps
     participant AG as Claude Code agent
 
-    You->>GH: Open issue, add label ai:plan
-    GH->>WF: issues.labeled
+    You->>GH: Open issue, comment "/plan"
+    GH->>WF: issue_comment
     WF->>WF: Write-access check, gather issue thread
     WF->>AG: /pipeline-plan (read-only tools)
     AG-->>WF: plan.json (summary, steps, files, risks, questions)
@@ -49,8 +49,8 @@ sequenceDiagram
     WF->>AG: /pipeline-plan with the answers
     AG-->>WF: plan.json (no questions)
     WF->>GH: Plan comment + ai:plan-ready
-    You->>GH: Add label ai:approved
-    GH->>WF: issues.labeled
+    You->>GH: Comment "/approve"
+    GH->>WF: issue_comment
     WF->>AG: /pipeline-build (edit files, run checks)
     AG-->>WF: build-report.json
     WF->>WF: Run checks again, commit, push branch
@@ -76,8 +76,8 @@ sequenceDiagram
 
 | Stage | Started by | Agent can | Workflow does | Result |
 | --- | --- | --- | --- | --- |
-| **Plan** | label `ai:plan` or comment `/plan` | read the code and the issue thread | posts the plan, labels the issue | plan + questions on the issue |
-| **Build** | label `ai:approved` or comment `/approve` | edit files, run `run-checks.sh` | re-runs checks, commits, pushes, opens the PR | pull request that closes the issue |
+| **Plan** | comment `/plan` on the issue | read the code and the issue thread | posts the plan, labels the issue | plan + questions on the issue |
+| **Build** | comment `/approve` on the issue | edit files, run `run-checks.sh` | re-runs checks, commits, pushes, opens the PR | pull request that closes the issue |
 | **Review** | automatically after a build or fix; comment `/review` to run again | read the diff and the code (×4 lenses) | merges and ranks findings, posts one comment | review comment on the PR |
 | **Fix** | comment `/fix` (+ what to change) on the PR | edit files, run `run-checks.sh` | merges the base first, re-runs checks, pushes to the same PR | new commit on the PR, then a new review |
 | **Merge** | you | — | — | merged change |
@@ -154,8 +154,9 @@ templates/                         copied into your repository by scripts/instal
 └── CLAUDE.md.example              project rules every agent follows
 scripts/
 ├── install.sh                     copy the templates into a repository (never overwrites)
-└── create-labels.sh               create the pipeline's labels
-tests/run.sh                       offline checks: syntax, schemas, renderers, trust rules, installer, shellcheck
+└── create-labels.sh               create the pipeline's two status labels
+tests/run.sh                       offline checks: syntax, schemas, renderers, trust rules, merge, commit, publish,
+                                   installer, shellcheck
 docs/                              architecture, security, design decisions, setup, walkthrough, diagrams
 ```
 
@@ -167,14 +168,14 @@ claude-code-dev-pipeline/scripts/install.sh /path/to/your-repo
 ```
 
 **📘 Follow the [setup guide](docs/setup.md)** for the full step-by-step: configuring your checks and toolchain,
-private package feeds, pushing to the default branch, installing the Claude GitHub App, adding the credential
-(`claude setup-token` with a Claude Pro / Max subscription, or an API key), creating the labels, and a first test of
-each stage with what you should see, plus troubleshooting.
+private package feeds, pushing to the default branch, adding the credential (`claude setup-token` with a Claude
+Pro / Max subscription, or an API key), creating the status labels, and a first test of each stage with what you
+should see, plus troubleshooting.
 
 ## Cost and limits
 
-- **Started by a person.** Nothing runs on push or on a schedule: planning and building start from a person's label
-  or command; the review runs after each build or fix; `/fix` runs only when asked.
+- **Started by a person.** Nothing runs on push or on a schedule: planning and building start from a person's
+  command; the review runs after each build or fix; `/fix` runs only when asked.
 - **Bounded runs.** Each agent has a turn limit (`--max-turns`) and each job a timeout; concurrency groups cancel
   superseded plan and review runs.
 - **Subscription or API.** With a subscription token, runs count against that person's plan limits, shared with
@@ -191,7 +192,8 @@ tests/run.sh
 
 Runs offline, with no GitHub access and no AI: script syntax and shellcheck, JSON and YAML validity, fixtures
 against the schemas, the renderers against expected output, the trust rules (an outsider's comment never reaches
-the agent; duplicate findings merge at the highest severity), and the installer (never overwrites an existing file).
+the agent; duplicate findings merge at the highest severity), merging and conflict handling, committing, publishing
+(commits go only where the publish job decides, never over an existing branch), and the installer.
 
 ## Status
 

@@ -34,4 +34,4 @@ Return the structured plan:
 - `questions`: plain-language questions, each answerable in a sentence. Empty when nothing is unclear.
 - `readyToBuild`: true only when `questions` is empty and the plan can be built as written.
 
-Keep it short and concrete. The requester reads this on their phone and approves it by adding a label.
+Keep it short and concrete. The requester reads this on their phone and approves it with a `/approve` comment.

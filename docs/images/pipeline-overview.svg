@@ -37,7 +37,7 @@
   <!-- PLAN -->
   <rect class="human" x="60" y="128" width="300" height="52" rx="10"/>
   <text class="tb" x="210" y="151">Open an issue</text>
-  <text class="ts" x="210" y="169">add label ai:plan</text>
+  <text class="ts" x="210" y="169">comment /plan</text>
   <rect class="gate" x="60" y="200" width="300" height="38" rx="10"/>
   <text class="t" x="210" y="224">Write-access check</text>
   <rect class="agent" x="60" y="258" width="300" height="70" rx="10"/>
@@ -46,7 +46,7 @@
   <text class="ts" x="210" y="319">tools: Read · Glob · Grep</text>
   <rect class="det" x="60" y="348" width="300" height="52" rx="10"/>
   <text class="tb" x="210" y="371">Post plan comment</text>
-  <text class="ts" x="210" y="389">label ai:needs-answers or ai:plan-ready</text>
+  <text class="ts" x="210" y="389">status label ai:needs-answers or ai:plan-ready</text>
   <rect class="out" x="60" y="420" width="300" height="52" rx="10"/>
   <text class="t" x="210" y="443">Plan + questions on the issue</text>
   <text class="ts" x="210" y="461">reply /plan + answers to re-plan</text>
@@ -60,7 +60,7 @@
   <!-- BUILD -->
   <rect class="human" x="430" y="128" width="300" height="52" rx="10"/>
   <text class="tb" x="580" y="151">Approve the plan</text>
-  <text class="ts" x="580" y="169">add label ai:approved or comment /approve</text>
+  <text class="ts" x="580" y="169">comment /approve</text>
   <rect class="gate" x="430" y="200" width="300" height="38" rx="10"/>
   <text class="t" x="580" y="224">Write-access check · plan exists</text>
   <rect class="agent" x="430" y="258" width="300" height="70" rx="10"/>
@@ -68,8 +68,8 @@
   <text class="ts" x="580" y="303">implements the plan, runs checks until green</text>
   <text class="ts" x="580" y="319">tools: Read · Edit · Write · run-checks.sh</text>
   <rect class="det" x="430" y="348" width="300" height="52" rx="10"/>
-  <text class="tb" x="580" y="371">Re-run checks · commit · push</text>
-  <text class="ts" x="580" y="389">the workflow verifies; the agent can't push</text>
+  <text class="tb" x="580" y="371">Re-run checks · commit · publish</text>
+  <text class="ts" x="580" y="389">a separate job pushes; the build job can't</text>
   <rect class="out" x="430" y="420" width="300" height="52" rx="10"/>
   <text class="t" x="580" y="443">Pull request</text>
   <text class="ts" x="580" y="461">"Closes #N" · summary · changes · checks</text>
@@ -118,7 +118,7 @@
 
   <!-- Legend -->
   <rect class="human" x="40" y="566" width="22" height="16" rx="4"/>
-  <text x="70" y="579" font-size="13" fill="#24292f">You (a label or comment)</text>
+  <text x="70" y="579" font-size="13" fill="#24292f">You (a comment command)</text>
   <rect class="gate" x="250" y="566" width="22" height="16" rx="4"/>
   <text x="280" y="579" font-size="13" fill="#24292f">Gate</text>
   <rect class="agent" x="350" y="566" width="22" height="16" rx="4"/>
