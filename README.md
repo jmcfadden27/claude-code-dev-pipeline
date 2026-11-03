@@ -82,7 +82,7 @@ sequenceDiagram
 | **Fix** | comment `/fix` (+ what to change) on the PR | edit files, run `run-checks.sh` | merges the base first, re-runs checks, pushes to the same PR | new commit on the PR, then a new review |
 | **Merge** | you | — | — | merged change |
 
-Every command is one run of one workflow, named after it (**/fix #3 by @you**). It answers with 👀, a status comment
+Every command is one run of one workflow, named after it (**/fix #3 · Add due dates**). It answers with 👀, a status comment
 that ends as ✅ done or ⚠️ failed, and 👍 / 👎 (😕 for "done, but the review didn't finish"); `/cancel` stops it.
 
 The issue thread is the pipeline's memory. Agents keep nothing between runs: each run reads the request, earlier

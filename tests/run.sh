@@ -474,10 +474,10 @@ cat > "$tmp/gh" <<'GH'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$(dirname "$0")/calls"
 if [[ "$*" == *"status=in_progress"* ]]; then
-  echo '{"id":101,"display_title":"/fix #12 by @jim"}'
-  echo '{"id":102,"display_title":"/fix #120 by @jim"}'
-  echo '{"id":103,"display_title":"/review #12 by @jim"}'
-  echo '{"id":77,"display_title":"/cancel #12 by @jim"}'
+  echo '{"id":101,"display_title":"/fix #12 · Add due dates"}'
+  echo '{"id":102,"display_title":"/fix #120 · Other #12 issue"}'
+  echo '{"id":103,"display_title":"/review #12 · Add due dates"}'
+  echo '{"id":77,"display_title":"/cancel #12 · Add due dates"}'
 fi
 if [[ "$*" == *"runs/103/cancel"* ]]; then exit 1; fi
 if [[ "$*" == *"/comments --paginate"* ]]; then

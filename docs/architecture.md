@@ -15,7 +15,7 @@ few jobs: deterministic steps before and after a Claude Code agent run (four in 
 
 1. **A comment starts the workflow.** Posting a comment is an `issue_comment` event. GitHub starts the workflow for
    every comment (there's no way to filter on the text before a run starts) and names the run after the command, for
-   example **/fix #3 by @jim**. Comments that don't start with `/` skip every job.
+   example **/fix #3 · Add due dates** (the issue or pull request title). Comments that don't start with `/` skip every job.
 2. **`prepare` reads the command and checks the requester.** `parse-command.sh` accepts only an exact command as the
    comment's first word, in the right place (`/plan` and `/approve` on issues, `/fix` and `/review` on pull requests,
    `/cancel` on both). `require-write-access.sh` checks write access through the API (and the optional allow-list).
@@ -151,7 +151,7 @@ never touches a run, except a near-miss such as `/planning` or a `/plan` from so
 resolved before anyone can check the comment, so that one replaces a running plan (or review) and then does nothing.
 
 `/cancel` looks up this workflow's runs still going for the same issue or pull request (by the run name, for example
-**/fix #3 by @jim**; on a pull request also the `/approve` run of the issue it closes), cancels them through GitHub's
+**/fix #3 · …**; on a pull request also the `/approve` run of the issue it closes), cancels them through GitHub's
 REST API (`POST /actions/runs/{id}/cancel`), and marks the status **⏹ cancelled** of each run it really cancelled. A cancel while the agent works pushes nothing (only the publish job pushes); a cancel
 that lands during publishing may leave the branch or pull request it was creating.
 

@@ -2,7 +2,7 @@
 # /cancel: cancels this workflow's runs still going for the same issue or pull request (through GitHub's REST API),
 # marks their status comments cancelled, and reacts 👍 on the /cancel comment (😕 when nothing was running).
 #
-# Runs are found by their name, which ai-pipeline.yml sets as "/<command> #<number> by @<user>". On a pull request this
+# Runs are found by their name, which ai-pipeline.yml sets as "/<command> #<number> · <title>". On a pull request this
 # includes the /approve run of the issue it closes (that run opened the pull request and may still be reviewing it).
 # A status is marked only when GitHub accepted the cancel and the status still says running.
 #
@@ -28,9 +28,9 @@ runs="$(for status in in_progress queued waiting pending requested; do
     || echo "::warning::Couldn't list ${status} runs." >&2
 done | jq -s -c --arg n "$NUMBER" --arg issue "$issue" --argjson self "$GITHUB_RUN_ID" '
   [.[] | select(.id != $self)
-   | select((.display_title | test("^/(plan|approve|fix|review) #\($n) by "))
-            or ($issue != "" and (.display_title | test("^/approve #\($issue) by "))))
-   | {id, title: .display_title, number: (.display_title | capture("#(?<n>[0-9]+) ").n)}] | unique_by(.id)')"
+   | select((.display_title | test("^/(plan|approve|fix|review) #\($n)( |$)"))
+            or ($issue != "" and (.display_title | test("^/approve #\($issue)( |$)"))))
+   | {id, title: .display_title, number: (.display_title | capture("^/[a-z]+ #(?<n>[0-9]+)").n)}] | unique_by(.id)')"
 
 if [[ "$(jq length <<< "$runs")" == "0" ]]; then
   echo "Nothing is running for #${NUMBER}."

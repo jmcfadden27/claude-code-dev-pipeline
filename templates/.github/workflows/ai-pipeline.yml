@@ -17,12 +17,14 @@
 # Write access is kept away from everything the agent touched: `build` runs the agent and the checks with read-only
 # access and hands its commits over as an artifact; `publish`, a fresh runner, is the only job that can push.
 name: AI Pipeline
+# Each run is named after its command and the issue / pull request it's on, e.g. "/plan #12 · Add due dates" (the
+# title comes from GitHub, nothing to type). cancel-runs.sh finds runs by the "/<command> #<number> " start.
 run-name: >-
   ${{ (startsWith(github.event.comment.body, '/plan') && '/plan') ||
   (startsWith(github.event.comment.body, '/approve') && '/approve') ||
   (startsWith(github.event.comment.body, '/fix') && '/fix') ||
   (startsWith(github.event.comment.body, '/review') && '/review') ||
-  (startsWith(github.event.comment.body, '/cancel') && '/cancel') || 'Comment' }} #${{ github.event.issue.number }} by @${{ github.actor }}
+  (startsWith(github.event.comment.body, '/cancel') && '/cancel') || 'Comment' }} #${{ github.event.issue.number }} · ${{ github.event.issue.title }}
 
 on:
   issue_comment:

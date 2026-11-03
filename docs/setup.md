@@ -378,7 +378,8 @@ it with a feature. If a step doesn't behave as described, see [Troubleshooting](
 - 👍 or 👎 on your comment at the end (😕 when a build or fix was pushed but its review didn't finish, or when
   `/cancel` found nothing running).
 
-In the **Actions** tab each command is one **AI Pipeline** run named after it, for example **/plan #12 by @you**.
+In the **Actions** tab each command is one **AI Pipeline** run named after it, for example **/plan #12 · [Change] Add due dates**
+(the pipeline adds the issue's title; you only type the command).
 Ordinary comments also start a run (GitHub starts the workflow for every comment); it skips everything at once.
 
 ### 10.1 Plan (about 2–5 minutes)
