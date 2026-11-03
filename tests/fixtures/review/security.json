@@ -11,5 +11,12 @@
       "detail": "Possibly logged somewhere; not confirmed in the code.",
       "suggestion": "Check the logging."
     }
-  ]
+  ],
+  "coverage": {
+    "filesChecked": [
+      "src/tasks/task-routes.ts",
+      "src/tasks/task-store.ts"
+    ],
+    "notChecked": []
+  }
 }

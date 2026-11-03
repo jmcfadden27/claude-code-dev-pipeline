@@ -4,7 +4,8 @@
   "required": [
     "lens",
     "verdict",
-    "findings"
+    "findings",
+    "coverage"
   ],
   "properties": {
     "lens": {
@@ -72,6 +73,45 @@
           "suggestion": {
             "type": "string"
           }
+        }
+      }
+    },
+    "coverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "filesChecked",
+        "notChecked"
+      ],
+      "properties": {
+        "filesChecked": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Every changed file you read in full and checked for your lens, as paths relative to pr/."
+        },
+        "notChecked": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "item",
+              "reason"
+            ],
+            "properties": {
+              "item": {
+                "type": "string",
+                "description": "A changed file, or something the pull request says was not verified, that you did not check."
+              },
+              "reason": {
+                "type": "string",
+                "description": "Why: out of time or turns, could not compare, not covered by your lens."
+              }
+            }
+          },
+          "description": "Anything relevant you did not check. Empty only when you checked everything for your lens."
         }
       }
     }

@@ -1,7 +1,7 @@
 ---
 name: pipeline-fix
 description: Fix stage of the AI pipeline. Updates an open pull request from its AI review and people's comments, resolving merge conflicts with the base branch first, then runs the project's checks until they pass. Edits files only; the workflow commits and pushes to the same pull request.
-allowed-tools: Read, Glob, Grep, Edit, Write, Bash(./pipeline/scripts/run-checks.sh)
+allowed-tools: Read, Glob, Grep, Edit, Write, Bash(./pipeline/scripts/run-checks.sh), Bash(diff *), Bash(git diff *)
 ---
 
 # Fix a pull request
@@ -30,8 +30,12 @@ the code on its branch so the pull request is right, then hand back a report.
    If you disagree with a finding, leave the code and say why in `summary`.
 3. **Stay in scope.** Change only what the request and the findings need. No unrelated refactors.
 4. Follow `CLAUDE.md` and the surrounding code. Add or update tests for behaviour you change.
-5. Run `./pipeline/scripts/run-checks.sh`. Fix what fails and run it again until it exits 0. It is the only command
-   you can run. You can't use git or GitHub: the workflow commits and pushes.
+5. Run `./pipeline/scripts/run-checks.sh` exactly like that, from the repository root (the folder you
+   start in; never `cd` first). It can take a long time (allow up to 60 minutes); wait for it to finish. Fix what fails
+   and run it again until it exits 0. Besides it, you can run only `diff` and `git diff` (read-only), for example to
+   compare a function you copied with the original: do that whenever you copy or redefine existing code, and say in
+   `summary` that you did. You can't use git or GitHub
+   otherwise: the workflow commits and pushes.
 6. Never write secrets into files. Don't touch `.github/`, `.claude/` or `pipeline/`. Skip any step in `CLAUDE.md` that
    needs something you don't have here (deploying, running the app, a database, the cloud).
 

@@ -304,7 +304,7 @@ jobs:
           claude_args: >-
             --model ${{ vars.PIPELINE_MODEL_BUILD || 'claude-opus-5-5' }}
             --max-turns ${{ vars.PIPELINE_MAX_TURNS_BUILD || '200' }}
-            --allowedTools "Read,Glob,Grep,Edit,Write,Bash(./pipeline/scripts/run-checks.sh)"
+            --allowedTools "Read,Glob,Grep,Edit,Write,Bash(./pipeline/scripts/run-checks.sh),Bash(diff *),Bash(git diff *)"
             --disallowedTools "WebFetch,WebSearch,mcp__*"
             --json-schema '${{ steps.schema.outputs.json }}'
 
@@ -412,7 +412,7 @@ jobs:
         needs.prepare.outputs.command == 'review' || (needs.publish.result == 'success' && needs.publish.outputs.pr != '')
       )
     runs-on: ubuntu-latest
-    timeout-minutes: ${{ fromJSON(vars.PIPELINE_TIMEOUT_REVIEW || '30') }}
+    timeout-minutes: ${{ fromJSON(vars.PIPELINE_TIMEOUT_REVIEW || '45') }}
     strategy:
       fail-fast: false
       matrix:
@@ -438,12 +438,17 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Gather the diff and the issue
+      - name: Gather the diff, the pull request and the issue
         env:
           GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ needs.publish.outputs.pr || needs.prepare.outputs.pr }}
         run: |
           mkdir -p .pipeline
           git -C pr diff "origin/${BASE_REF}...HEAD" > .pipeline/diff.patch
+          git -C pr diff --stat "origin/${BASE_REF}...HEAD" > .pipeline/diff-files.txt
+          # The description (the build agent's summary, checks and follow-ups, including anything it couldn't verify)
+          # and the collaborators' conversation.
+          ./pipeline/scripts/gather-pr-context.sh
           # Claude Code loads CLAUDE.md files (and .claude/ rules) from folders it reads in, so the pull request could
           # instruct its own reviewers. Remove them from the copy the reviewers read; the diff still shows them.
           find pr -path pr/.git -prune -o \( -name CLAUDE.md -o -name CLAUDE.local.md \) -type f -print -exec rm -f {} +
@@ -465,7 +470,7 @@ jobs:
           prompt: /pipeline-review ${{ matrix.lens }}
           claude_args: >-
             --model ${{ vars.PIPELINE_MODEL_REVIEW || 'claude-opus-5-5' }}
-            --max-turns ${{ vars.PIPELINE_MAX_TURNS_REVIEW || '60' }}
+            --max-turns ${{ vars.PIPELINE_MAX_TURNS_REVIEW || '100' }}
             --allowedTools "Read,Glob,Grep"
             --disallowedTools "Bash,Edit,Write,WebFetch,WebSearch,mcp__*"
             --json-schema '${{ steps.schema.outputs.json }}'

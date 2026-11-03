@@ -146,6 +146,11 @@ if ! grep -q "Due date might be logged" <<< "$review" && grep -q "1 finding(s) b
 else
   fail "findings below 80 confidence are left out and counted"
 fi
+if grep -q "| tests | ✅ approve | 2 | 3 |" <<< "$review" && grep -A2 "Not checked" <<< "$review" | grep -q "large-dataset.json\` (tests): too large"; then
+  pass "each lens's coverage is shown, and what it didn't check is listed"
+else
+  fail "each lens's coverage is shown, and what it didn't check is listed"
+fi
 
 # The header check in commit-change.sh, against good and bad headers.
 header_pattern="$(sed -n "s/^header_pattern='\\(.*\\)'$/\\1/p" "$scripts/commit-change.sh")"

@@ -81,7 +81,7 @@ converges instead of starting over.
 | | |
 | --- | --- |
 | Precondition | build: the issue has a plan comment from the pipeline; fix: an open pull request from this repository |
-| Agent | `/pipeline-build` or `/pipeline-fix` · tools `Read, Glob, Grep, Edit, Write, Bash(./pipeline/scripts/run-checks.sh)` · 200 turns · 120-minute job (adjustable) |
+| Agent | `/pipeline-build` or `/pipeline-fix` · tools `Read, Glob, Grep, Edit, Write, Bash(./pipeline/scripts/run-checks.sh)`, `Bash(diff *)`, `Bash(git diff *)` (to compare copied code) · 200 turns · 120-minute job, 60 minutes per command (adjustable) |
 | Output | [`build-report.schema.json`](../templates/pipeline/schemas/build-report.schema.json): status, summary, changes, checks, followUps, commit (Conventional Commits header) |
 | Fix context | `.pipeline/pr.md`: what you asked after `/fix` (none = the AI review's findings), the description, the conversation and comments on lines of code, from collaborators only; `.pipeline/issue.md`; `.pipeline/diff.patch` |
 | Before a fix | `merge-base.sh` merges the latest base branch (a clean merge is committed; conflicts are left for the agent and listed in `.pipeline/conflicts.txt`); it stops early, with what to do, on conflicts in files the agent may not change, binary files or deleted files, and when the base changed workflow files (the workflow token can't push those). `snapshot-config.sh` keeps the branch's `CLAUDE.md` / `.claude/`, which `claude-code-action` swaps for the default branch's copies on pull request events |
@@ -120,8 +120,9 @@ checks fail, nothing is pushed and the status says why.
 | --- | --- |
 | Trigger | automatically in the same run, right after a build or fix pushes; or `/review` on a pull request |
 | Jobs | `review` (matrix of 4 lenses, `fail-fast: false`) → `summarize` |
-| Agent | `/pipeline-review <lens>` · tools `Read, Glob, Grep` · 60 turns · 30-minute job each (adjustable) |
+| Agent | `/pipeline-review <lens>` · tools `Read, Glob, Grep` · 100 turns · 45-minute job each (adjustable) |
 | Output | [`review-findings.schema.json`](../templates/pipeline/schemas/review-findings.schema.json): lens, verdict, findings (severity, confidence, file, line, title, detail, suggestion) |
+| Context | `.pipeline/diff.patch` and the changed-file list; `.pipeline/pr.md` (the description, including the build agent's follow-ups and anything it says it couldn't verify, and the collaborators' conversation); `.pipeline/issue.md` |
 | Effect | one review comment on the pull request, updated in place on every re-review; the command's status links to it |
 
 The default branch is checked out at the root and the pinned head commit in `pr/`. The prompts, settings and scripts
@@ -135,6 +136,12 @@ flowchart LR
     G --> C4[requirements]
     C1 & C2 & C3 & C4 --> S[summarize<br/>drop confidence below 80 · merge duplicates<br/>keep highest severity · one comment]
 ```
+
+Each reviewer reads every changed file its lens covers in full (riskiest first), compares any copied or redefined code
+with the original by reading both, checks anything the build agent flagged as unverified, and reports its
+**coverage**: the files it checked and anything it didn't (shown as "Files checked" and "⚠️ Not checked"), so a
+skimmed review is visible. Reviewers have no shell, deliberately: a read-only `diff` could still print the process
+environment (`/proc/self/environ`) and its Claude credential.
 
 The reviewers don't see each other's findings, so they don't anchor on one another. Each finding carries a confidence
 score; anything below 80 (`PIPELINE_REVIEW_MIN_CONFIDENCE`) is left out and counted, because a reviewer asked to find

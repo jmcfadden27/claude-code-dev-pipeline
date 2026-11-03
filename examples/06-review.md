@@ -3,12 +3,12 @@ _Comment posted by the pipeline on the pull request._
 <!-- ai-pipeline:review -->
 ## 🔍 AI review of 3f9c2e1
 
-| Lens | Verdict | Findings |
-| --- | --- | --- |
-| correctness | ❌ changes requested | 1 |
-| requirements | ✅ approve | 0 |
-| security | ✅ approve | 0 |
-| tests | ✅ approve | 2 |
+| Lens | Verdict | Findings | Files checked |
+| --- | --- | --- | --- |
+| correctness | ❌ changes requested | 1 | 2 |
+| requirements | ✅ approve | 0 | 2 |
+| security | ✅ approve | 0 | 2 |
+| tests | ✅ approve | 2 | 3 |
 
 ### 🔴 Overdue check compares dates in the server's time zone
 
@@ -29,5 +29,9 @@ Two tasks with the same due date are expected in creation order, but they are cr
 **Result: changes requested** by 1 of 4 reviewers.
 
 _1 finding(s) below 80 confidence left out._
+
+### ⚠️ Not checked
+
+- `test/fixtures/large-dataset.json` (tests): too large to read in the time available
 
 _Independent reviewers, one per lens, each without the others' output. Advisory only: a person reviews and merges._

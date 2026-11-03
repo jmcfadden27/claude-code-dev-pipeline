@@ -1,7 +1,7 @@
 ---
 name: pipeline-build
 description: Build stage of the AI pipeline. Implements the approved plan from the issue thread and runs the project's checks until they pass. Edits files only; the workflow commits and opens the pull request.
-allowed-tools: Read, Glob, Grep, Edit, Write, Bash(./pipeline/scripts/run-checks.sh)
+allowed-tools: Read, Glob, Grep, Edit, Write, Bash(./pipeline/scripts/run-checks.sh), Bash(diff *), Bash(git diff *)
 ---
 
 # Build the approved plan
@@ -20,8 +20,11 @@ that plan in the working tree.
 1. Implement the approved plan. Stay inside its scope: no unrelated refactors, renames or "while I'm here" fixes. If
    something outside the plan must change, make the smallest change that works and list it in `followUps`.
 2. Follow the patterns in the surrounding code and `CLAUDE.md`. Add or update tests for the behaviour you change.
-3. Run `./pipeline/scripts/run-checks.sh`. Fix what fails and run it again until it exits 0. It is the only command
-   you can run.
+3. Run `./pipeline/scripts/run-checks.sh` exactly like that, from the repository root (the folder you
+   start in; never `cd` first). It can take a long time (allow up to 60 minutes); wait for it to finish. Fix what fails
+   and run it again until it exits 0. Besides it, you can run only `diff` and `git diff` (read-only), for example to
+   compare a function you copied with the original: do that whenever you copy or redefine existing code, and say in
+   `summary` that you did.
 4. You cannot use git or GitHub, and you don't need to: the workflow commits your changes, pushes a branch and opens
    the pull request after it runs the checks again itself.
 5. Never write secrets, tokens or credentials into files. Don't touch `.github/`, `.claude/` or `pipeline/`.

@@ -20,5 +20,18 @@
       "detail": "Two tasks with the same due date are expected in creation order, but they are created in the same millisecond on fast machines.",
       "suggestion": "Give the two tasks explicit, different createdAt values."
     }
-  ]
+  ],
+  "coverage": {
+    "filesChecked": [
+      "src/tasks/task-routes.ts",
+      "test/tasks.test.ts",
+      "src/tasks/task-store.ts"
+    ],
+    "notChecked": [
+      {
+        "item": "test/fixtures/large-dataset.json",
+        "reason": "too large to read in the time available"
+      }
+    ]
+  }
 }

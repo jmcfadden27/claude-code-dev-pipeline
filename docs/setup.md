@@ -358,8 +358,8 @@ with a repository variable (**Settings → Secrets and variables → Actions →
 | Variable | Default | What it sets |
 | --- | --- | --- |
 | `PIPELINE_MODEL_PLAN` / `_BUILD` / `_REVIEW` | `claude-opus-5-5` | the model per stage (build also covers fix) |
-| `PIPELINE_MAX_TURNS_PLAN` / `_BUILD` / `_REVIEW` | 60 / 200 / 60 | how many steps the agent may take before it stops |
-| `PIPELINE_TIMEOUT_PLAN` / `_BUILD` / `_REVIEW` | 30 / 120 / 30 | minutes before GitHub stops the job |
+| `PIPELINE_MAX_TURNS_PLAN` / `_BUILD` / `_REVIEW` | 60 / 200 / 100 | how many steps the agent may take before it stops |
+| `PIPELINE_TIMEOUT_PLAN` / `_BUILD` / `_REVIEW` | 30 / 120 / 45 | minutes before GitHub stops the job |
 | `PIPELINE_REVIEW_MIN_CONFIDENCE` | 80 | review findings below this confidence (a whole number, 0–100) are left out |
 
 The review runs four agents, so it is the largest share of usage: set `PIPELINE_MODEL_REVIEW` to `claude-sonnet-5-5`
@@ -421,8 +421,10 @@ Ordinary comments also start a run (GitHub starts the workflow for every comment
 1. Nothing to do: a build or fix reviews the pull request in the same run, right after it pushes. To review again
    later, for example after pushing changes yourself, comment **`/review`** on the pull request.
 2. Four reviewers run in parallel (correctness, security, tests, requirements), then **summarize** posts the result.
-3. The pull request has one **🔍 AI review** comment: a verdict per lens and the findings ranked by severity, each with
-   a confidence score. Findings below 80 confidence are left out (and counted).
+3. The pull request has one **🔍 AI review** comment: a verdict per lens, how many changed files each reviewer checked,
+   the findings ranked by severity (each with a confidence score; below 80 is left out and counted), and a
+   **⚠️ Not checked** list of anything a reviewer didn't get to. A review with no findings but a long "Not checked"
+   list wasn't thorough: comment `/review` again, or raise `PIPELINE_MAX_TURNS_REVIEW`.
 4. Every later review **updates that same comment** (its header names the commit reviewed); the command's status links
    straight to it.
 

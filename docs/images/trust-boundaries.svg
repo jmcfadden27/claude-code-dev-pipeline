@@ -92,7 +92,7 @@
   <text class="no" x="994" y="326">✗ Bash</text>
   <text class="s" x="994" y="352">PR code in pr/;</text>
   <text class="s" x="994" y="368">prompts from base</text>
-  <text class="s" x="994" y="384">60 turns · 30 min</text>
+  <text class="s" x="994" y="384">100 turns · 45 min</text>
 
   <rect class="box" x="650" y="412" width="470" height="66" rx="8"/>
   <text class="t" x="664" y="436">Structured output only</text>

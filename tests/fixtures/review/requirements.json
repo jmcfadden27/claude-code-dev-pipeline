@@ -1,5 +1,12 @@
 {
   "lens": "requirements",
   "verdict": "approve",
-  "findings": []
+  "findings": [],
+  "coverage": {
+    "filesChecked": [
+      "src/tasks/task-routes.ts",
+      "src/tasks/task-store.ts"
+    ],
+    "notChecked": []
+  }
 }

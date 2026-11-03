@@ -11,5 +11,12 @@
       "detail": "A task due 2026-11-02 created by a user in UTC-8 is listed as overdue at 16:00 their time, because new Date() is compared with a date-only value parsed as UTC midnight.",
       "suggestion": "Compare against the start of today in UTC, or store and compare date-only values."
     }
-  ]
+  ],
+  "coverage": {
+    "filesChecked": [
+      "src/tasks/task-routes.ts",
+      "src/tasks/task-store.ts"
+    ],
+    "notChecked": []
+  }
 }
