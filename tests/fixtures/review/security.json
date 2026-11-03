@@ -1,5 +1,15 @@
 {
   "lens": "security",
   "verdict": "approve",
-  "findings": []
+  "findings": [
+    {
+      "severity": "medium",
+      "confidence": 55,
+      "file": "src/tasks/task-routes.ts",
+      "line": 12,
+      "title": "Due date might be logged",
+      "detail": "Possibly logged somewhere; not confirmed in the code.",
+      "suggestion": "Check the logging."
+    }
+  ]
 }

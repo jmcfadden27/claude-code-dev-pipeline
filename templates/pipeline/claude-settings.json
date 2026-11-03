@@ -39,7 +39,13 @@
       "Edit(~/.ssh/**)",
       "Edit(~/.claude/**)",
       "Edit(~/.local/**)",
-      "Edit(~/.dotnet/**)"
+      "Edit(~/.dotnet/**)",
+      "Edit(./**/CLAUDE.md)",
+      "Write(./**/CLAUDE.md)",
+      "Edit(./**/CLAUDE.local.md)",
+      "Write(./**/CLAUDE.local.md)",
+      "Edit(./**/.claude/**)",
+      "Write(./**/.claude/**)"
     ]
   },
   "env": {

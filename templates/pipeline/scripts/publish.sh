@@ -1,39 +1,46 @@
 #!/usr/bin/env bash
 # Publish job (the only job with write access, on a fresh runner): pushes the commits the build job bundled, then
-# opens the pull request (build) or comments on it (fix).
+# opens the pull request (build) or comments on it with what changed (fix).
 #
 # The build job ran code the agent wrote, so its artifact is untrusted: where to push comes only from the prepare job
-# (MODE, ISSUE_NUMBER, PR_NUMBER, HEAD_REF, BASE_REF), and the bundled commits must sit on top of that branch. From the
+# (MODE, ISSUE_NUMBER, PR_NUMBER, HEAD_REF, HEAD_SHA, BASE_REF, BASE_SHA), and the bundled commits must sit on top of
+# the commit prepare recorded. From the
 # artifact only the commits and text (title, report) are used. Every script comes from this job's own checkout of the
 # default branch.
 #
 # Note: a push made with the workflow's GITHUB_TOKEN does not start other workflows (GitHub's rule), so the
 # repository's own CI won't run on it automatically; the build job ran the checks itself. See docs/design-decisions.md.
 #
-# Env: IN (the downloaded artifact folder), MODE (build | fix), ISSUE_NUMBER, PR_NUMBER (fix), HEAD_REF, BASE_REF,
-# BASE_SHA (build: the commit the build started from), GH_TOKEN, GITHUB_REPOSITORY, GITHUB_RUN_ID, GITHUB_RUN_ATTEMPT.
+# Env: IN (the downloaded artifact folder), MODE (build | fix), ISSUE_NUMBER, BASE_REF; build: BASE_SHA (the commit the
+# build started from); fix: PR_NUMBER, HEAD_REF, HEAD_SHA (the pull request's commit when /fix was accepted); GH_TOKEN,
+# GITHUB_REPOSITORY, GITHUB_RUN_ID, GITHUB_RUN_ATTEMPT. Step outputs: pr, sha, url (the pull request, or the fix's
+# comment), note (a fix that changed nothing: why).
 set -euo pipefail
 
 : "${IN:?IN is required}"
 : "${MODE:?MODE is required}"
 : "${BASE_REF:?BASE_REF is required}"
 here="$(dirname "$0")"
+# The report is the agent's text (and the build job's, where code the agent wrote runs): break @mentions in what we post.
+zero_width="$(printf '\xe2\x80\x8b')"
 reason_file="${RUNNER_TEMP:-/tmp}/failure-reason"
 fail() { echo "::error::$1"; echo "$1" > "$reason_file"; exit 1; }
 
 meta="$(cat "$IN/meta.json")"
 report="$(cat "$IN/report.json")"
 title="$(jq -r '.title | tostring' <<< "$meta")"
-committed="$(jq -r '.committed // true' <<< "$meta")"
+# (`// true` would turn false into true: jq's alternative operator treats false as missing.)
+committed="$(jq -r 'if .committed == false then "false" else "true" end' <<< "$meta")"
 summary="$(jq -r '.summary | tostring' <<< "$report")"
 
 if [[ "$MODE" == "fix" ]]; then
   : "${PR_NUMBER:?PR_NUMBER is required}"
   : "${HEAD_REF:?HEAD_REF is required}"
+  : "${HEAD_SHA:?HEAD_SHA is required}"
   branch="$HEAD_REF"
-  on_top_of="origin/${HEAD_REF}"
+  on_top_of="$HEAD_SHA"
   again="If someone pushed to the pull request meanwhile, comment \`/fix\` again."
-  onto="${HEAD_REF}"
+  onto="the pull request's commit when /fix was accepted"
 else
   : "${ISSUE_NUMBER:?ISSUE_NUMBER is required}"
   : "${BASE_SHA:?BASE_SHA is required}"
@@ -52,8 +59,7 @@ fi
 
 if [[ ! -f "$IN/change.bundle" ]]; then
   [[ "$MODE" == "fix" ]] || fail "The build produced no commits. ${again}"
-  gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body "<!-- ai-pipeline:fixed -->
-ℹ️ Nothing to change: ${summary}"
+  if [[ -n "${GITHUB_OUTPUT:-}" ]]; then echo "note=${summary//$'\n'/ }" >> "$GITHUB_OUTPUT"; fi
   exit 0
 fi
 
@@ -81,7 +87,8 @@ if [[ "$MODE" == "build" ]]; then
   # A new branch only: refuse if it already exists.
   push_args=(--force-with-lease="refs/heads/${branch}:" "${sha}:refs/heads/${branch}")
 else
-  push_args=("${sha}:refs/heads/${branch}")
+  # Only while the branch is still at the commit /fix was accepted for (someone may have pushed since).
+  push_args=(--force-with-lease="refs/heads/${branch}:${HEAD_SHA}" "${sha}:refs/heads/${branch}")
 fi
 if ! git push -q "$remote" "${push_args[@]}"; then
   fail "Pushing to ${branch} was refused (see the run log). ${again}"
@@ -89,16 +96,14 @@ fi
 
 if [[ "$MODE" == "build" ]]; then
   body="$(jq -r --arg issue "$ISSUE_NUMBER" -f "$here/render-pr-body.jq" <<< "$report")"
+  body="${body//@/@${zero_width}}"
   if ! url="$(gh pr create --repo "$GITHUB_REPOSITORY" --base "$BASE_REF" --head "$branch" --title "$title" --body "$body")"; then
     fail "The branch ${branch} was pushed, but opening the pull request failed (see the run log). Open it from the branch yourself, or delete the branch and comment \`/approve\` again."
   fi
   pr="${url##*/}"
-  if [[ -n "${GITHUB_OUTPUT:-}" ]]; then { echo "pr=${pr}"; echo "sha=${sha}"; } >> "$GITHUB_OUTPUT"; fi
-  gh issue comment "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" --body "<!-- ai-pipeline:built -->
-🔧 Built the approved plan: ${url}. The AI review starts now." || echo "::warning::Couldn't comment on the issue."
+  if [[ -n "${GITHUB_OUTPUT:-}" ]]; then { echo "pr=${pr}"; echo "sha=${sha}"; echo "url=${url}"; } >> "$GITHUB_OUTPUT"; fi
   echo "Opened ${url}"
 else
-  if [[ -n "${GITHUB_OUTPUT:-}" ]]; then { echo "pr=${PR_NUMBER}"; echo "sha=${sha}"; } >> "$GITHUB_OUTPUT"; fi
   if [[ "$committed" == "true" ]]; then
     changes="$(jq -r '.changes | map("- `\(.path)`: \(.what)") | join("\n")' <<< "$report")"
     body="🔧 **${title}**
@@ -109,8 +114,8 @@ ${changes}"
   else
     body="🔄 Brought in the latest ${BASE_REF}; nothing else to change: ${summary}"
   fi
-  gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body "<!-- ai-pipeline:fixed -->
-${body}
-
-The AI review runs again now." || echo "::warning::Couldn't comment on the pull request."
+  body="${body//@/@${zero_width}}"
+  url="$(gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body "<!-- ai-pipeline:fixed -->
+${body}")" || { echo "::warning::Couldn't comment on the pull request."; url=""; }
+  if [[ -n "${GITHUB_OUTPUT:-}" ]]; then { echo "pr=${PR_NUMBER}"; echo "sha=${sha}"; echo "url=${url}"; } >> "$GITHUB_OUTPUT"; fi
 fi

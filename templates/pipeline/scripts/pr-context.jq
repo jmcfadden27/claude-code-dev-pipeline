@@ -6,12 +6,17 @@ def trusted: . as $a | ["OWNER", "MEMBER", "COLLABORATOR"] | index($a) != null;
 def pipeline: IN("github-actions", "github-actions[bot]");
 # $trusted: logins verified to have write access (trusted-authors.sh).
 def verified: . as $l | $trusted | index($l) != null;
-# Failure notices can carry text from the build job (code the agent wrote): never treat them as pipeline text.
-def pipeline_text: (.author.login | pipeline) and (.body | startswith("<!-- ai-pipeline:failed -->") | not);
+# Status comments, fix notes and the older failure notices can carry text from the build job, where code the agent
+# wrote runs: never treat them as pipeline text.
+def pipeline_text: (.author.login | pipeline)
+  and (.body | startswith("<!-- ai-pipeline:status") or startswith("<!-- ai-pipeline:fixed")
+       or startswith("<!-- ai-pipeline:failed -->") | not);
 def trusted_comment: (.author.login | verified) or (.authorAssociation | trusted) or pipeline_text;
+def status_notice: (.author.login | pipeline) and (pipeline_text | not);
 def trusted_inline: (.user.login | verified) or (.author_association | trusted) or (.user.login | pipeline);
 
-($pr.comments | map(select(trusted_comment and (.body | ascii_downcase | startswith("/fix")))) | last) as $request
+# The request: the latest trusted comment whose first word is exactly /fix (as parse-command.sh reads it).
+($pr.comments | map(select(trusted_comment and (.body | gsub("\r"; "") | test("^/fix(\\s|$)"; "i")))) | last) as $request
 |
 "# Pull request #\($pr.number): \($pr.title)",
 "",
@@ -31,7 +36,9 @@ def trusted_inline: (.user.login | verified) or (.author_association | trusted) 
   ($pr.comments[] |
     "### @\(.author.login) · \(.createdAt)",
     "",
-    (if trusted_comment then .body else "_(withheld: not from a repository collaborator)_" end),
+    (if trusted_comment then .body
+     elif status_notice then "_(the pipeline's status notice: not shown)_"
+     else "_(withheld: not from a repository collaborator)_" end),
     "")
 end),
 "## Comments on lines of code",

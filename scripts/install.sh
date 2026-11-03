@@ -3,9 +3,9 @@
 #
 #   scripts/install.sh /path/to/your-repo [--force]
 #
-# Existing files are never overwritten unless --force is given (--force also replaces your run-checks.sh, ai-build.yml
+# Existing files are never overwritten unless --force is given (--force also replaces your run-checks.sh, ai-pipeline.yml
 # and CLAUDE.md: to update an installed pipeline, follow docs/setup.md "Updating" instead). Nothing is committed or pushed: review the copied
-# files, configure pipeline/scripts/run-checks.sh and the toolchain step in ai-build.yml, then commit them yourself.
+# files, configure pipeline/scripts/run-checks.sh and the toolchain step in ai-pipeline.yml, then commit them yourself.
 set -euo pipefail
 
 usage() { echo "Usage: $0 <target-repo> [--force]" >&2; exit 2; }
@@ -42,7 +42,7 @@ Copied ${copied} file(s), skipped ${skipped}.
 
 Next steps (see docs/setup.md):
   1. Edit pipeline/scripts/run-checks.sh with your build and test commands.
-  2. Add your toolchain setup to the marked step in .github/workflows/ai-build.yml.
+  2. Add your toolchain setup to the marked step in .github/workflows/ai-pipeline.yml.
   3. Fill in CLAUDE.md with your project's rules.
   4. Add the CLAUDE_CODE_OAUTH_TOKEN secret.
   5. Repository settings: allow GitHub Actions to create pull requests.

@@ -48,6 +48,8 @@ merged by a deterministic step.
 **Why:** a single reviewer anchors on the first problems it finds. Narrow lenses go deeper, parallel jobs keep wall
 time flat, and agreement between independent reviewers is a useful signal (the summary shows which lenses found
 each issue). The requirements lens checks the diff against the approved plan, closing the loop with stage 1.
+Each finding carries a confidence score and only findings at 80 or above are posted (the rest are counted): a reviewer
+asked to find problems always finds something, and Anthropic's own code-review plugin filters the same way.
 **Alternative:** one reviewer with a long checklist. Cheaper, and a reasonable setting for small changes: drop lenses
 from the matrix.
 
@@ -91,8 +93,26 @@ request.
 **Why:** the checks run code the agent wrote. Anything sharing a runner with a write token could reach it, by
 changing later steps or the environment they inherit. So the build job holds nothing that can push or comment: the
 agent's step gets the job's read-only token (`github_token`, so no Claude GitHub App token is minted), comments are
-posted by `prepare` and `report`, and the publish job takes where to push from `prepare`, never from the build job's
-artifact, and accepts only commits on top of that branch.
+posted by jobs that run before the agent or never run its code (`prepare`, `plan`, `publish`, `summarize`, `finish`,
+`cancel`), and the publish job takes where to push from `prepare`, never from the build job's
+artifact, and accepts only commits on top of the commit `prepare` pinned.
+
+### 12. One workflow, one status comment, reactions
+
+**Decision:** a single workflow (`ai-pipeline.yml`) handles every command. Each run is named after its command
+(**/fix #3 by @jim**). A command gets 👀, one status comment that changes from **⏳ running** to **✅ done** (with links)
+or **⚠️ failed** (with the reason), and 👍 / 👎 (😕 when a build was pushed but its review didn't finish, or a `/cancel`
+found nothing running). The review is one comment updated in place. `/cancel` cancels runs
+through GitHub's REST API.
+**Why:** GitHub starts every workflow that listens for comments on every comment and can't filter on the text first,
+so one workflow per command meant several runs per comment. One workflow gives one run, named for what it does. The
+acknowledgement and status follow the established tools: Copilot and Codex react 👀; `github/command` and
+`slash-command-dispatch` react with the outcome; claude-code-action, Copilot, CodeRabbit and Cursor Bugbot keep one
+comment (or description) up to date instead of adding a new one each time. Cancelling through the API works across
+jobs and doesn't depend on how concurrency groups interact.
+**Alternative:** a dispatcher workflow that starts one workflow per command (`slash-command-dispatch`): every comment
+then still makes a router run, plus a second run per command. A hosted bot (Prow, Atlantis) makes no runs for ordinary
+comments, but means running a server.
 
 ## Known limits
 

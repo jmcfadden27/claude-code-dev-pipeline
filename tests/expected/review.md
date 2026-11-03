@@ -10,7 +10,7 @@
 
 ### 🔴 Overdue check compares dates in the server's time zone
 
-`src/tasks/task-routes.ts:42` · high · correctness, tests
+`src/tasks/task-routes.ts:42` · high · confidence 95 · correctness, tests
 
 A task due 2026-11-02 created by a user in UTC-8 is listed as overdue at 16:00 their time, because new Date() is compared with a date-only value parsed as UTC midnight.
 
@@ -18,12 +18,14 @@ A task due 2026-11-02 created by a user in UTC-8 is listed as overdue at 16:00 t
 
 ### 🟡 Ordering test relies on insertion order for equal due dates
 
-`test/tasks.test.ts` · low · tests
+`test/tasks.test.ts` · low · confidence 88 · tests
 
 Two tasks with the same due date are expected in creation order, but they are created in the same millisecond on fast machines.
 
 **Suggestion:** Give the two tasks explicit, different createdAt values.
 
 **Result: changes requested** by 1 of 4 reviewers.
+
+_1 finding(s) below 80 confidence left out._
 
 _Independent reviewers, one per lens, each without the others' output. Advisory only: a person reviews and merges._

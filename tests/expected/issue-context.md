@@ -29,3 +29,7 @@ Users can set a due date on a task and see overdue tasks first.
 ### @drive-by-user · 2026-11-02T15:31:02Z
 
 _(withheld: not from a repository collaborator)_
+
+### @github-actions · 2026-11-02T15:04:11Z
+
+_(the pipeline's status notice: not shown)_

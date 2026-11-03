@@ -24,10 +24,13 @@ _and comments on the pull request:_
 >
 > - `src/tasks/task-routes.ts`: compare against the start of today in UTC
 > - `test/tasks.test.ts`: time-zone test for the overdue ordering
->
-> The AI review runs again now.
 
-_The review runs again and reports no findings. The requester merges._
+_The review runs again in the same run and updates the review comment: no findings. The `/fix` comment has 👀 and
+then 👍, and its status comment reads:_
+
+> ✅ **Fix** done · [pushed the fix](#) · [AI review](#): no blocking findings · [run](#)
+
+_The requester merges._
 
 The commit message is built by [`commit-message.jq`](../templates/pipeline/scripts/commit-message.jq) and checked by
 `tests/run.sh` (`tests/expected/commit-message-fix.md`).

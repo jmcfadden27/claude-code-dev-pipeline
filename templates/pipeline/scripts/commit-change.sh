@@ -10,7 +10,7 @@
 # base when one is in progress. Which branch the commits go to is decided by the publish job, not here.
 #
 # Env: MODE (build | fix), REPORT_JSON, OUT, ISSUE_NUMBER, BASE_REF; build: BASE_SHA (the commit the build started
-# from); fix: PR_NUMBER, HEAD_REF. Writes the reason for a stop to $RUNNER_TEMP/failure-reason for the failure comment.
+# from); fix: PR_NUMBER, HEAD_REF, HEAD_SHA (the pull request's commit when /fix was accepted). Writes the reason for a stop to $RUNNER_TEMP/failure-reason for the failure comment.
 set -euo pipefail
 
 # Code the agent wrote ran in this job: ignore any git hooks, global or system config it may have left behind.
@@ -76,7 +76,7 @@ if [[ "$MODE" == "build" ]]; then
   git commit -q -F - <<< "$message"
   committed=true
 else
-  since="origin/${HEAD_REF}"
+  since="${HEAD_SHA:-origin/${HEAD_REF}}"
   committed=false
   if [[ -f .git/MERGE_HEAD ]] || ! git diff --cached --quiet; then git commit -q -F - <<< "$message"; committed=true; fi
 fi

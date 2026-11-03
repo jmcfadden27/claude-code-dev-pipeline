@@ -30,9 +30,12 @@ others' findings. Your lens is: **$ARGUMENTS**.
    No style opinions, no speculation, nothing your lens doesn't cover.
 3. Severity: **high** breaks behaviour, security or data for real users; **medium** is a real defect in a less common
    path; **low** is a minor issue worth fixing.
-4. Do not change any file.
+4. Confidence (0–100): how sure you are, after checking the code, that the finding is a real defect a person would
+   want fixed. Findings below the pipeline's minimum (80 by default) are not posted, so don't pad the list: an empty list
+   is a good result.
+5. Do not change any file.
 
 ## Output
 
-Return the structured findings for your lens. `verdict` is `changes-requested` when any finding is high, otherwise
-`approve`. An empty `findings` list is a good outcome, not a failure.
+Return the structured findings for your lens. `verdict` is `changes-requested` when any finding with confidence
+80 or more is high, otherwise `approve`. An empty `findings` list is a good outcome, not a failure.

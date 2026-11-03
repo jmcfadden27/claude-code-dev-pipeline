@@ -4,6 +4,7 @@
   "findings": [
     {
       "severity": "high",
+      "confidence": 95,
       "file": "src/tasks/task-routes.ts",
       "line": 42,
       "title": "Overdue check compares dates in the server's time zone",

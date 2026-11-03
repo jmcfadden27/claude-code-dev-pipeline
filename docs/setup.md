@@ -30,7 +30,7 @@ You need:
 | What | Why | Check |
 | --- | --- | --- |
 | A GitHub repository you are an **admin** of | to add the secret, labels and settings | the repository shows a **Settings** tab |
-| **GitHub Actions** enabled for it | the pipeline is four workflows | **Settings → Actions → General**: "Allow all actions" (or allow `anthropics/*`, `actions/*` and any toolchain actions you add) |
+| **GitHub Actions** enabled for it | the pipeline is one workflow | **Settings → Actions → General**: "Allow all actions" (or allow `anthropics/*`, `actions/*` and any toolchain actions you add) |
 | Workflows **allowed to create pull requests** | the build stage opens the pull request | **Settings → Actions → General → Workflow permissions**: tick "Allow GitHub Actions to create and approve pull requests". Greyed out? The organization's setting overrides it: an organization owner ticks the same box at `https://github.com/organizations/<org>/settings/actions` first (if it's greyed out there too, an enterprise policy controls it). |
 | [Claude Code](https://code.claude.com) installed locally | to create the credential (step 7) | `claude --version` |
 | A Claude **Pro / Max** subscription, or a Claude API key | the agents run on it | — |
@@ -39,8 +39,8 @@ You need:
 | A build and test command that works on Linux | the build stage runs it on GitHub's Ubuntu runners | — |
 
 **How it fits together** (details in [architecture](architecture.md#how-a-stage-runs)): you start every stage with a
-comment command such as `/plan`. A comment is a GitHub *event*; each one starts the pipeline's workflows on fresh
-GitHub machines, and the workflow that matches the command does the work. The workflow's
+comment command such as `/plan`. A comment is a GitHub *event*; each one starts the pipeline's workflow on fresh
+GitHub machines, and the jobs for that command do the work. The workflow's
 scripts prepare the input, Claude Code does the stage's work and answers with JSON, and the scripts act on that answer
 (comment, commit, open a pull request). You start every stage; you merge every change.
 
@@ -54,8 +54,8 @@ claude-code-dev-pipeline/scripts/install.sh /path/to/your-repo
 The installer copies everything under `templates/` into the repository and prints each file:
 
 ```text
-  copy    .github/workflows/ai-plan.yml
-  copy    .github/workflows/ai-build.yml
+  copy    .github/workflows/ai-pipeline.yml
+  copy    .github/ISSUE_TEMPLATE/ai-change-request.yml
   ...
   skip    CLAUDE.md (exists)
 ```
@@ -68,8 +68,7 @@ What was added:
 
 | Path | Purpose | Edit it? |
 | --- | --- | --- |
-| `.github/workflows/ai-plan.yml`, `ai-build.yml`, `ai-review.yml` | plan; build and fix; review | only the toolchain section of `ai-build.yml` (step 4) |
-| `.github/workflows/ai-cancel.yml` | the `/cancel` command | no |
+| `.github/workflows/ai-pipeline.yml` | the whole pipeline: every command | only its toolchain section (step 4) |
 | `.github/ISSUE_TEMPLATE/ai-change-request.yml` | the change-request form | optional |
 | `.claude/skills/pipeline-*/SKILL.md` | each stage's instructions to Claude | optional |
 | `pipeline/scripts/run-checks.sh` | your build and test gate | **yes** (step 3) |
@@ -142,7 +141,8 @@ GitHub sets `CI=true` on its runners. Use the same tool and settings you use for
 ## 4. Configure the build toolchain
 
 GitHub's Ubuntu runners include common tools, but you should pin the versions your checks need. Open
-`.github/workflows/ai-build.yml` and replace the comment block marked **Your toolchain** with setup steps:
+`.github/workflows/ai-pipeline.yml` and replace the comment block marked **Your toolchain** (in the `build` job)
+with setup steps:
 
 ```yaml
       - uses: actions/setup-node@v4
@@ -218,7 +218,7 @@ loads it automatically in every session, so every pipeline agent follows it, and
 - It's written for developers too. Steps an agent can't do in the pipeline (deploying, running the app, using a
   database) are fine to keep: the build agent skips them and lists anything a person should do after merging.
 
-You don't need to mention the pipeline or its skills in it. Each workflow names its skill directly.
+You don't need to mention the pipeline or its skills in it. The workflow names each stage's skill directly.
 
 ## 6. Push to the default branch
 
@@ -239,7 +239,7 @@ git cherry-pick <pipeline-commit-hash>
 git push
 ```
 
-**Check:** the repository's **Actions** tab lists **AI Plan**, **AI Build**, **AI Review** and **AI Cancel**.
+**Check:** the repository's **Actions** tab lists **AI Pipeline**.
 
 ## 7. Add the Claude credential
 
@@ -277,7 +277,7 @@ What to know about this token:
 - **Removing access:** delete the secret, and the pipeline can no longer use your account.
 
 **With a Claude API key** (better for a team): create a key at [platform.claude.com](https://platform.claude.com), add it
-as the secret `ANTHROPIC_API_KEY`, and in each workflow with a Claude step (plan, build, review) replace
+as the secret `ANTHROPIC_API_KEY`, and in `ai-pipeline.yml`, in each Claude step (the plan, build and review jobs), replace
 
 ```yaml
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
@@ -334,8 +334,9 @@ claude-code-dev-pipeline/scripts/create-labels.sh <owner>/<repo>
   reach the agent, but the issue body you choose to plan does. Anyone who can comment can type a command; the job
   refuses them, but their comment can still replace a queued run or cancel a running plan or review. If that becomes a
   problem, limit who can comment (**Settings → Moderation options → Interaction limits**).
-- **Self-hosted runners:** `pipeline/claude-settings.json` denies reading `/home/runner/work/_temp/secrets`, the
-  location on GitHub-hosted runners. Change it to your runner's `RUNNER_TEMP`.
+- **Self-hosted runners:** `pipeline/claude-settings.json` denies the agents `/home/runner/work/_temp` (the runner's
+  temp folder on GitHub-hosted runners, where tokens and the pipeline's own files live). Change those rules to your
+  runner's `RUNNER_TEMP`.
 
 - **Delete merged branches automatically:** **Settings → General → Pull Requests →** tick "Automatically delete head
   branches", so merged `ai/issue-N-…` branches disappear.
@@ -359,6 +360,7 @@ with a repository variable (**Settings → Secrets and variables → Actions →
 | `PIPELINE_MODEL_PLAN` / `_BUILD` / `_REVIEW` | `claude-opus-5-5` | the model per stage (build also covers fix) |
 | `PIPELINE_MAX_TURNS_PLAN` / `_BUILD` / `_REVIEW` | 60 / 200 / 60 | how many steps the agent may take before it stops |
 | `PIPELINE_TIMEOUT_PLAN` / `_BUILD` / `_REVIEW` | 30 / 120 / 30 | minutes before GitHub stops the job |
+| `PIPELINE_REVIEW_MIN_CONFIDENCE` | 80 | review findings below this confidence (a whole number, 0–100) are left out |
 
 The review runs four agents, so it is the largest share of usage: set `PIPELINE_MODEL_REVIEW` to `claude-sonnet-5-5`
 if your plan's limits get tight. Raise the build limits for very large changes, or better, split the issue.
@@ -368,38 +370,46 @@ if your plan's limits get tight. Raise the build limits for very large changes, 
 Use something small and safe the first time, such as adding one unit test, so you see the whole loop before trusting
 it with a feature. If a step doesn't behave as described, see [Troubleshooting](#13-troubleshooting).
 
+**What every command does on GitHub** (the standard way command bots answer):
+
+- 👀 on your comment straight away: the pipeline saw it;
+- one status comment, **⏳ Plan running · follow the run · comment `/cancel` to stop it**, that changes when the run
+  ends to **✅ … done** with links to the result, or **⚠️ … failed** with the reason;
+- 👍 or 👎 on your comment at the end (😕 when a build or fix was pushed but its review didn't finish, or when
+  `/cancel` found nothing running).
+
+In the **Actions** tab each command is one **AI Pipeline** run named after it, for example **/plan #12 by @you**.
+Ordinary comments also start a run (GitHub starts the workflow for every comment); it skips everything at once.
+
 ### 10.1 Plan (about 2–5 minutes)
 
 1. **Issues → New issue → Change request (AI pipeline)**. Fill in:
    - **Goal:** for example "Add a unit test for the date formatter's handling of empty input".
    - **Acceptance criteria:** "A new test covers empty input; no production code changes".
-2. Comment **`/plan`** on the issue. Commands only work at the very start of a comment.
-3. Open the **Actions** tab: an **AI Plan** run appears. Click it to watch the steps; the **Plan** step is Claude.
-4. When it finishes, the issue has a **🗺️ Implementation plan** comment and the label `ai:plan-ready` or
-   `ai:needs-answers`.
+2. Comment **`/plan`** on the issue. The command must be the comment's first word.
+3. The run's jobs: **prepare** (checks and posts the status), **plan** (the **Plan** step is Claude), **finish**.
+4. When it finishes, the issue has a **🗺️ Implementation plan** comment, the label `ai:plan-ready` or
+   `ai:needs-answers`, and the status links to the plan.
 5. If it asked questions: reply in **one comment that starts with `/plan`**, with your answers on the following lines.
-   `/plan` is this pipeline's command (not a GitHub feature): a comment starting with it re-runs the plan stage, and
-   the agent reads the whole thread, your answers included. A new plan appears that uses your answers. Repeat until
-   `ai:plan-ready`.
-
-Each stage posts **⏳ started · follow the run** on the issue or pull request when it begins.
+   `/plan` is this pipeline's command (not a GitHub feature): the agent reads the whole thread, your answers included,
+   and posts a new plan. Repeat until `ai:plan-ready`.
 
 ### 10.2 Build (about 10–30 minutes)
 
 1. Comment **`/approve`** on the issue. That comment is your approval of the latest plan.
-2. **Actions** tab: an **AI Build** run appears with these jobs:
-   - **prepare** checks you may run it and posts **⏳ started**;
+2. The run's jobs:
+   - **prepare** checks the issue has a plan and records the exact default-branch commit to build on;
    - **build** is the long one: the **Build or fix** step is Claude implementing the plan and running your checks
      until they pass, then **Run the checks again** (the pipeline verifying for itself) and **Commit the change for
      publishing**. This job can only read the repository;
-   - **publish** pushes the branch and opens the pull request (the only job that can push);
-   - **review** reviews the pull request (10.3).
+   - **publish** pushes a new branch and opens the pull request (the only job that can push);
+   - **review** (four, in parallel) and **summarize** review the pull request (10.3);
+   - **finish** updates the status.
 3. When it finishes:
    - a pull request titled in the commit format, for example `test(dates): cover empty input in the date formatter`;
    - its description lists the changes, the checks and any follow-ups;
-   - the issue has a **🔧 Built the approved plan** comment linking to it.
-4. If the agent couldn't finish, the issue gets a **⚠️ The build stage failed** comment (posted by a **report** job)
-   and nothing was pushed. The run's **Build or fix** step log explains why.
+   - the issue's status says **✅ Build done · opened … · AI review: …**.
+4. If the agent couldn't finish, the status says **⚠️ Build failed** with the reason, and nothing was pushed.
 
 > Your repository's own CI workflows won't start on this pull request by themselves: GitHub doesn't start workflows
 > from pushes made with the workflow token. The build stage already ran your checks; re-run CI manually if you need
@@ -407,13 +417,13 @@ Each stage posts **⏳ started · follow the run** on the issue or pull request 
 
 ### 10.3 Review (about 5 minutes)
 
-1. Nothing to do: the build run reviews the pull request as soon as it's open (its **review** jobs). To review again
-   later, for example after pushing changes yourself, comment **`/review`** on the pull request: that starts a
-   separate **AI Review** run.
-2. Either way the review is a **gate** job, four **review** jobs in parallel (correctness, security, tests,
-   requirements) and a **summarize** job.
-3. The pull request gets one **🔍 AI review** comment: a verdict per lens and the findings ranked by severity.
-4. After changing the pull request, comment **`/review`** again. Each review posts a new comment at the bottom and folds the earlier ones away, marked outdated.
+1. Nothing to do: a build or fix reviews the pull request in the same run, right after it pushes. To review again
+   later, for example after pushing changes yourself, comment **`/review`** on the pull request.
+2. Four reviewers run in parallel (correctness, security, tests, requirements), then **summarize** posts the result.
+3. The pull request has one **🔍 AI review** comment: a verdict per lens and the findings ranked by severity, each with
+   a confidence score. Findings below 80 confidence are left out (and counted).
+4. Every later review **updates that same comment** (its header names the commit reviewed); the command's status links
+   straight to it.
 
 ### 10.4 Fix (about 10–30 minutes)
 
@@ -421,10 +431,11 @@ When the review (or you) finds something to change, fix it on the same pull requ
 
 1. Comment on the pull request: **`/fix`** alone fixes the AI review's findings; **`/fix` followed by text** does what
    you ask, for example `/fix add a test for the JSON mapping`. Comments you leave on lines of code are included.
-2. **Actions** tab: an **AI Build** run in fix mode, with the same jobs as a build. It first brings the branch up to
-   date with its base (the agent resolves any conflicts), then fixes, runs the checks, and the workflow checks again.
+2. The run has the same jobs as a build. The pull request's commit is pinned when your `/fix` is accepted; the fix
+   brings the branch up to date with its base (the agent resolves any conflicts), fixes, runs the checks, and the
+   workflow checks again. It pushes only if nobody pushed to the branch meanwhile.
 3. The pull request gets a new commit and a **🔧** comment saying what changed (and why any finding was left), and
-   the review runs again on its own.
+   the review runs again. The status says **✅ Fix done · pushed the fix · AI review: …** with links to both.
 4. Repeat `/fix` until you're happy.
 
 ### 10.5 Merge
@@ -439,11 +450,11 @@ Only people with write access to the repository can run them; anyone else's comm
 
 | Command | Where | What it does |
 | --- | --- | --- |
-| `/plan` + text | issue | plan, or re-plan with your answers / changes |
+| `/plan` [answers or changes] | issue | plan, or re-plan with your answers or changes (text optional) |
 | `/approve` | issue | build the latest plan (this is your approval); each `/approve` opens a new pull request, so close an older one you no longer want |
-| `/fix` + text | pull request | fix the review's findings, or what you ask; brings the branch up to date first |
+| `/fix` [what to change] | pull request | fix the review's findings, or what you write after it; brings the branch up to date first |
 | `/review` | pull request | review again (the first review is automatic) |
-| `/cancel` | issue or pull request | stop a running plan, build, fix or review |
+| `/cancel` | issue or pull request | stop the plan, build, fix or review running there |
 
 | You want to | Do this |
 | --- | --- |
@@ -454,7 +465,7 @@ Only people with write access to the repository can run them; anyone else's comm
 | Get review findings fixed | `/fix` on the pull request |
 | Ask for a specific change on the pull request | `/fix` + what to change, or comments on lines of code then `/fix` |
 | Stop something | `/cancel` |
-| See what happened | the **⏳ started** comment links to the run; the **Actions** tab shows all runs |
+| See what happened | the command's status comment (✅ / ⚠️) links to the result and the run; the **Actions** tab lists one run per command, named after it |
 
 ## 12. Try a stage locally
 
@@ -478,31 +489,34 @@ Use this to try changes to a skill's instructions before they reach the pipeline
 | Symptom | Cause and fix |
 | --- | --- |
 | A failed build left an `ai/issue-N-…` branch | Each build pushes a new branch before opening its pull request. Delete leftover branches under **Code → Branches**. |
-| Nothing appears in Actions after a command | The workflow files aren't on the default branch (step 6); Actions are disabled (step 1); or the command isn't the comment's first word (the run then stops at **Check the requester may run the pipeline** saying so). |
+| No 👀 on your command | The workflow isn't on the default branch (step 6); Actions are disabled (step 1); the command isn't the comment's first word, or isn't one for that place (`/fix` on an issue); or you lack write access. The run's **prepare** job says which ("Not a pipeline command here" or "does not have write access"). |
 | The plan step fails to set a label | The status labels don't exist yet (step 8). |
 | **GitHub Actions is not permitted to create or approve pull requests** | Tick "Allow GitHub Actions to create and approve pull requests" (step 1). The branch was already pushed: open its pull request from the link in the log and comment `/review`. |
-| The run fails at **Check the requester may run the pipeline** | The person who wrote the command lacks write access, or isn't in `PIPELINE_ALLOWED_USERS`. |
 | The run fails in the **Plan / Build or fix / Review** (Claude) step with an authentication error | The secret is missing or misnamed (step 7), or the token expired (`claude setup-token` again). Test the token locally with `claude`. |
 | `/approve` fails with **There is no plan on this issue yet** | Comment `/plan` first. |
 | **is not configured for this repository yet** | `pipeline/scripts/run-checks.sh` still has the template body (step 3). |
-| The Claude step stops at the turn limit, or a comment says **stopped at its time limit** | The change is too big for one run. Split the issue, or raise `PIPELINE_MAX_TURNS_*` / `PIPELINE_TIMEOUT_*` (see "Choosing the model and limits"). |
+| The Claude step stops at the turn limit, or the status says **stopped at its time limit** | The change is too big for one run. Split the issue, or raise `PIPELINE_MAX_TURNS_*` / `PIPELINE_TIMEOUT_*` (see "Choosing the model and limits"). |
 | Fix fails with **changed workflow files since this branch was made** | GitHub doesn't let a workflow's token push changes to `.github/workflows/`, so the pipeline can't bring those into the branch. Update the branch yourself (below), then `/fix` again. This happens only when the default branch's workflows changed after the pull request was opened, for example after you updated the pipeline. |
 | **Pushing to … was refused** or **don't sit on top of** | Fix: someone pushed to the pull request while the fix ran; `/fix` again. Build: rare (the commits didn't build on the recorded start commit); `/approve` again. The default branch moving during a build is fine. |
 | **The change touches workflow files** | GitHub doesn't let the pipeline push `.github/workflows/` changes. Make that part yourself; ask the pipeline only for the rest. |
 | Fix fails with **conflicts in files the agent may not change**, **in binary files** or **where one side deleted a file** | The agent can't resolve those. Update the branch yourself (below), resolving the conflicts, then `/fix` again. |
 | **Unresolved merge conflicts remain in: …** (fix) | The agent couldn't resolve every conflict with the base branch. Resolve them locally on the branch and push, or `/fix` with guidance on which side to keep. |
 | `/fix` fails with **This pull request is not open** | Reopen it first, or start over with `/approve` on the issue. |
-| Fix says **Nothing to change** | The agent found nothing to do for the request; its reason is in the comment. Be more specific after `/fix`. |
-| `/cancel` | Posts **⏹ Cancelling…**; the stopped run posts nothing else. If it was already publishing, its branch or pull request may exist: check the pull request or **Code → Branches**. |
+| Fix status says **nothing to change** | The agent found nothing to do for the request; its reason is in the status. Be more specific after `/fix`. |
+| `/cancel` | 👍 on your comment and **⏹ cancelled** on the stopped command's status; 😕 means nothing was running there. If the run was already publishing, its branch or pull request may exist: check the pull request or **Code → Branches**. |
+| A status still says **⏳ running** but the run has ended | The run was replaced or cancelled by a comment that wasn't a valid command for it (for example `/planning`, or someone without write access), or the runner itself failed (rare). Comment the command again. |
+| You sent `/approve` or `/fix` twice while one was running, and one never answered | GitHub keeps only the newest waiting run per issue or pull request: an earlier waiting command is dropped without a reply. Wait for the running one to finish before sending another. |
+| Status says **done, but the review didn't finish** | The build or fix was pushed (the status links to it); a reviewer failed or timed out. Comment `/review` on the pull request. Don't `/approve` again: that would open a second pull request. |
 | A database migration fails in **Run the checks** | The migration has an error; the log shows the SQL error. `/fix` with the error, or fix it yourself. |
-| Build reports **blocked** | The agent explains why in the failure comment and the run log. Clarify in a comment starting with `/plan`, then `/approve` again. |
+| Build reports **blocked** | The agent explains why in the status and the run log. Clarify in a comment starting with `/plan`, then `/approve` again. |
 | **Run the checks again** fails after the agent said they passed | The checks aren't deterministic (flaky tests, network). Fix `run-checks.sh` or the tests; nothing was committed. |
 | A toolchain or package restore step fails | A missing setup step or credential (step 4). For cloud credentials, check the cloud side trusts this repository and branch. |
 | **commit header is not in the Conventional Commits format** / **commit title is not a Conventional Commits header** | The agent's commit fields didn't form a valid header. Comment the command again; if it repeats, open an issue on this repository. |
 | You re-ran a failed **publish** job | Works: it pushes to a new branch named with the run attempt. Delete a branch an earlier attempt left behind. |
 | Your CI doesn't run on the pipeline's pull request | Expected (see 10.2). |
-| A build's pull request couldn't be opened after the push | The failure comment names the branch: open a pull request from it yourself, or delete it and `/approve` again. |
-| A review lens failed | The summary still posts the other lenses and a ⚠️ comment links to the run. Comment `/review` to retry. |
+| A build's pull request couldn't be opened after the push | The status names the branch: open a pull request from it yourself, or delete it and `/approve` again. |
+| A review lens failed | The review comment still shows the other lenses. After `/approve` or `/fix` the status says **done, but the review didn't finish** (with the pull request); after `/review` it says **⚠️ Review failed**. Comment `/review` to retry. |
+| The review shows few or no findings you expected | Findings below 80 confidence are left out (the comment counts them). Lower `PIPELINE_REVIEW_MIN_CONFIDENCE` to see more. |
 
 To read a run's details: **Actions** → the run → the failed job → expand the failed step.
 
@@ -523,9 +537,9 @@ To read a run's details: **Actions** → the run → the failed job → expand t
 **Updating** to a newer version of this repository: pull it, then compare its `templates/` with your repository.
 
 1. Copy over every file you haven't customised: everything except `pipeline/scripts/run-checks.sh`,
-   `.github/workflows/ai-build.yml` and your `CLAUDE.md`.
-2. `ai-build.yml`: take the new template, paste your toolchain section back into the marked step, and re-add
-   `id-token: write` to the build job if your toolchain uses OIDC.
+   `.github/workflows/ai-pipeline.yml` and your `CLAUDE.md`.
+2. `ai-pipeline.yml`: take the new template, paste your toolchain section back into the marked step of the `build`
+   job, and re-add `id-token: write` to that job if your toolchain uses OIDC.
 3. `run-checks.sh`: keep your commands, but make its `if [[ "${CI:-}" == "true" ]]` block at the top match the
    template's. That block keeps tokens away from the code the checks run.
 4. Delete pipeline files the new version no longer has (compare `pipeline/scripts/`, `.claude/skills/pipeline-*` and
@@ -534,13 +548,17 @@ To read a run's details: **Actions** → the run → the failed job → expand t
 6. If the update changed `.github/workflows/`, open pull requests from the pipeline need their branch updated
    (Troubleshooting, "Updating a pull request's branch") before `/fix` works on them.
 
-**Upgrading from the label-based version** (labels `ai:plan`, `ai:approved`, `ai:review` started stages): after
-updating as above, delete those three labels (**Issues → Labels**); they do nothing now. Use `/plan`, `/approve` and
-`/review` instead. The pipeline also no longer uses the Claude GitHub App: uninstall it from the repository unless
-something else uses it (**Settings → GitHub Apps → Claude → Configure**).
+**Upgrading from an earlier version:**
 
-**Pausing:** disable the workflows under **Actions** → workflow → **⋯ → Disable workflow**.
+- **Four workflows** (`ai-plan.yml`, `ai-build.yml`, `ai-review.yml`, `ai-cancel.yml`): delete them and add
+  `ai-pipeline.yml` (step 4 above covers it), moving your toolchain section into its `build` job. Also delete
+  `pipeline/scripts/post-started.sh` and `comment-failure.sh`.
+- **Labels as triggers** (`ai:plan`, `ai:approved`, `ai:review`): delete those three labels (**Issues → Labels**); use
+  `/plan`, `/approve` and `/review` instead. The pipeline also no longer uses the Claude GitHub App: uninstall it from
+  the repository unless something else uses it (**Settings → GitHub Apps → Claude → Configure**).
 
-**Removing:** delete `.github/workflows/ai-*.yml` (plan, build, review, cancel), `.github/ISSUE_TEMPLATE/ai-change-request.yml`,
+**Pausing:** **Actions** → **AI Pipeline** → **⋯ → Disable workflow**.
+
+**Removing:** delete `.github/workflows/ai-pipeline.yml`, `.github/ISSUE_TEMPLATE/ai-change-request.yml`,
 `.claude/skills/pipeline-*` and `pipeline/`; delete the `CLAUDE_CODE_OAUTH_TOKEN` (or `ANTHROPIC_API_KEY`) secret
 and the `ai:needs-answers` / `ai:plan-ready` labels.

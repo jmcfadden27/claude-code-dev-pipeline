@@ -24,8 +24,8 @@ review. This pipeline is built around those concerns rather than around the agen
 | "It works on my machine" | **Trust, but verify**: the builder runs the checks until they pass, then the workflow runs them again itself before it opens a pull request. |
 | Unstructured agent output | Every agent returns **JSON validated against a schema**. Deterministic workflow steps turn it into comments, labels, commits and pull requests. |
 | Review findings that never get fixed | **`/fix` on the pull request**: the agent brings the branch up to date (resolving conflicts), fixes the review's findings or what you ask, re-checks and pushes to the same pull request, and the review runs again. |
-| Waiting blind / runaway runs | Every stage posts **⏳ started** with a link to its run; **`/cancel`** stops any stage; turn limits and timeouts are adjustable per repository. |
-| One reviewer's blind spots | **Four independent reviewers** (correctness, security, tests, requirements) run in parallel without seeing each other's findings; their results are merged and ranked. |
+| Waiting blind / runaway runs | Every command gets 👀, then **one status comment** that turns from ⏳ running into ✅ done (with links) or ⚠️ failed (with the reason); **`/cancel`** stops it; turn limits and timeouts are adjustable per repository. |
+| One reviewer's blind spots | **Four independent reviewers** (correctness, security, tests, requirements) run in parallel without seeing each other's findings; only findings with confidence 80+ are posted, merged and ranked in one review comment. |
 | Prompt injection from strangers | Only collaborators can trigger the pipeline, comments from anyone else are withheld from the agents, fork pull requests are never reviewed, and review prompts always come from the base branch. |
 
 ## How it works
@@ -82,7 +82,8 @@ sequenceDiagram
 | **Fix** | comment `/fix` (+ what to change) on the PR | edit files, run `run-checks.sh` | merges the base first, re-runs checks, pushes to the same PR | new commit on the PR, then a new review |
 | **Merge** | you | — | — | merged change |
 
-Any stage can be stopped with `/cancel`, and each posts **⏳ started** with a link to its run.
+Every command is one run of one workflow, named after it (**/fix #3 by @you**). It answers with 👀, a status comment
+that ends as ✅ done or ⚠️ failed, and 👍 / 👎 (😕 for "done, but the review didn't finish"); `/cancel` stops it.
 
 The issue thread is the pipeline's memory. Agents keep nothing between runs: each run reads the request, earlier
 plans, answers and approvals from the thread, so every decision is visible and auditable on GitHub.
@@ -136,10 +137,7 @@ header against the format, and stops instead of committing if it doesn't match. 
 ```text
 templates/                         copied into your repository by scripts/install.sh
 ├── .github/workflows/
-│   ├── ai-plan.yml                stage 1: plan
-│   ├── ai-build.yml               stage 2: build (open the PR) and fix (update it); then the review
-│   ├── ai-review.yml              stage 3: 4 parallel reviewers + merged comment
-│   └── ai-cancel.yml              /cancel: stop a running stage
+│   └── ai-pipeline.yml            every command: plan, build and fix, review, cancel
 ├── .github/ISSUE_TEMPLATE/
 │   └── ai-change-request.yml      structured change request (goal, acceptance criteria, scope)
 ├── .claude/skills/
@@ -150,7 +148,8 @@ templates/                         copied into your repository by scripts/instal
 ├── pipeline/
 │   ├── claude-settings.json       deny rules for every agent run
 │   ├── schemas/                   JSON contracts for agent output
-│   └── scripts/                   deterministic glue (bash + jq): gate, context, merge, commit, publish, render, post
+│   └── scripts/                   deterministic glue (bash + jq): command, access, context, merge, commit, publish,
+│                                  render, status, cancel
 └── CLAUDE.md.example              project rules every agent follows
 scripts/
 ├── install.sh                     copy the templates into a repository (never overwrites)
@@ -180,7 +179,7 @@ should see, plus troubleshooting.
   superseded plan and review runs.
 - **Subscription or API.** With a subscription token, runs count against that person's plan limits, shared with
   their interactive use. The multi-agent review is the most expensive stage (four agents); it runs once per build, and again only when asked for.
-  To make it on-demand only, remove the `review` job at the end of `ai-build.yml`.
+  To make it on-demand only, change the `review` job's `if:` in `ai-pipeline.yml` to run only for `/review`.
 - **Model per stage.** Claude Opus by default; switch any stage with a repository variable (see setup).
 - **GitHub Actions minutes** are used by every job.
 

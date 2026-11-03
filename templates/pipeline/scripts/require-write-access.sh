@@ -1,23 +1,12 @@
 #!/usr/bin/env bash
-# Stops the job unless the comment is exactly the stage's command and ACTOR may run the pipeline: write, maintain or
-# admin access to this repository and, when the PIPELINE_ALLOWED_USERS repository variable is set, listed in it
-# (comma separated).
+# Exits non-zero unless ACTOR may run the pipeline: write, maintain or admin access to this repository and, when the
+# PIPELINE_ALLOWED_USERS repository variable is set, listed in it (comma separated).
 #
 # claude-code-action makes the same write-access check before Claude starts. This runs first so that none of the
 # pipeline's own steps (gathering context, posting comments) run for anyone else either.
 #
-# Env: ACTOR, GITHUB_REPOSITORY, GH_TOKEN; optional PIPELINE_ALLOWED_USERS; optional COMMAND and COMMENT_BODY.
+# Env: ACTOR, GITHUB_REPOSITORY, GH_TOKEN; optional PIPELINE_ALLOWED_USERS.
 set -euo pipefail
-
-# The workflows' `if:` uses startsWith, which also matches longer words (`/approved`, `/planning`): the comment's
-# first word must be the command itself (any letter case).
-if [[ -n "${COMMAND:-}" ]]; then
-  read -r first _ <<< "${COMMENT_BODY:-}" || true
-  if [[ "$(tr '[:upper:]' '[:lower:]' <<< "${first:-}")" != "$COMMAND" ]]; then
-    echo "::error::The comment starts with \"${first:-}\", not the command ${COMMAND}; nothing to do."
-    exit 1
-  fi
-fi
 
 : "${ACTOR:?ACTOR is required}"
 : "${GITHUB_REPOSITORY:?GITHUB_REPOSITORY is required}"

@@ -4,6 +4,7 @@
   "findings": [
     {
       "severity": "medium",
+      "confidence": 88,
       "file": "src/tasks/task-routes.ts",
       "line": 42,
       "title": "Overdue check compares dates in the server's time zone",
@@ -12,6 +13,7 @@
     },
     {
       "severity": "low",
+      "confidence": 88,
       "file": "test/tasks.test.ts",
       "line": 0,
       "title": "Ordering test relies on insertion order for equal due dates",

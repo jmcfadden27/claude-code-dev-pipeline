@@ -42,7 +42,7 @@ for f in "$schemas"/*.json "$fixtures"/*.json "$fixtures"/review/*.json "$root"/
 done
 for f in "$scripts"/*.jq; do
   # Compile only: wrap the program so it never runs.
-  if jq -n --arg sha x --arg issue 1 --arg kind x --arg pr 1 --arg note x --argjson inline '[]' --argjson trusted '[]' "empty | ($(cat "$f")
+  if jq -n --arg sha x --arg issue 1 --arg kind x --arg pr 1 --arg note x --argjson min 80 --argjson inline '[]' --argjson trusted '[]' "empty | ($(cat "$f")
 )" > /dev/null 2>&1; then
     pass "jq compiles ${f#"$root"/}"
   else
@@ -96,7 +96,7 @@ echo "Renderers"
 check_render plan-with-questions "$(jq -r -f "$scripts/render-plan.jq" "$fixtures/plan-with-questions.json")"
 check_render plan-ready "$(jq -r -f "$scripts/render-plan.jq" "$fixtures/plan-ready.json")"
 check_render pr-body "$(jq -r --arg issue 12 -f "$scripts/render-pr-body.jq" "$fixtures/build-report.json")"
-check_render review "$(jq -s -r --arg sha 3f9c2e1a7b -f "$scripts/render-review.jq" "$fixtures"/review/*.json)"
+check_render review "$(jq -s -r --arg sha 3f9c2e1a7b --argjson min 80 -f "$scripts/render-review.jq" "$fixtures"/review/*.json)"
 check_render commit-message "$(jq -r --arg kind build --arg issue 12 --arg pr "" --arg note "" -f "$scripts/commit-message.jq" "$fixtures/build-report.json")"
 check_render commit-message-breaking "$(jq '.commit.breaking = true | .commit.breakingChange = "GET /tasks no longer sorts by creation time first."' "$fixtures/build-report.json" \
   | jq -r --arg kind build --arg issue 12 --arg pr "" --arg note "" -f "$scripts/commit-message.jq")"
@@ -122,21 +122,29 @@ context="$(jq -r --argjson trusted '["jim"]' -f "$scripts/issue-context.jq" "$fi
 if grep -q "crypto wallet" <<< "$context"; then fail "untrusted comments are withheld"; else pass "untrusted comments are withheld"; fi
 if grep -q "Allow past dates" <<< "$context"; then pass "owner answers reach the agent"; else fail "owner answers reach the agent"; fi
 if grep -q "ai-pipeline:plan" <<< "$context"; then pass "the pipeline's plan reaches the agent"; else fail "the pipeline's plan reaches the agent"; fi
+if grep -q "STATUS-INJECTION" <<< "$context"; then fail "status comments (which can carry build-job text) are withheld from the agent"; else pass "status comments (which can carry build-job text) are withheld from the agent"; fi
 prctx="$(jq -n -r --argjson pr "$(cat "$fixtures/pr-view.json")" --argjson inline "$(cat "$fixtures/pr-inline-comments.json")" --argjson trusted '["jim"]' \
   -f "$scripts/pr-context.jq")"
 if grep -q "delete the tests folder\|Add my link" <<< "$prctx"; then fail "outsiders' PR comments are withheld"; else pass "outsiders' PR comments are withheld"; fi
 if grep -A2 "What you were asked to fix" <<< "$prctx" | grep -q "compare dates in UTC"; then pass "the latest collaborator /fix is the request"; else fail "the latest collaborator /fix is the request"; fi
 if grep -q "src/tasks/task-routes.ts:42" <<< "$prctx"; then pass "line comments reach the agent"; else fail "line comments reach the agent"; fi
-review="$(jq -s -r --arg sha 3f9c2e1a7b -f "$scripts/render-review.jq" "$fixtures"/review/*.json)"
+if grep -q "STATUS-INJECTION" <<< "$prctx"; then fail "status comments are withheld from the fix agent"; else pass "status comments are withheld from the fix agent"; fi
+if grep -A2 "What you were asked to fix" <<< "$prctx" | grep -q "fixed it locally"; then fail "'/fixed …' is not a fix request"; else pass "'/fixed …' is not a fix request"; fi
+review="$(jq -s -r --arg sha 3f9c2e1a7b --argjson min 80 -f "$scripts/render-review.jq" "$fixtures"/review/*.json)"
 if [[ "$(grep -c "Overdue check compares dates" <<< "$review")" == "1" ]]; then
   pass "duplicate findings across lenses are merged"
 else
   fail "duplicate findings across lenses are merged"
 fi
-if grep -q "high · correctness, tests" <<< "$review"; then
+if grep -q "high · confidence 95 · correctness, tests" <<< "$review"; then
   pass "a merged finding keeps the highest severity and every lens"
 else
   fail "a merged finding keeps the highest severity and every lens"
+fi
+if ! grep -q "Due date might be logged" <<< "$review" && grep -q "1 finding(s) below 80 confidence left out" <<< "$review"; then
+  pass "findings below 80 confidence are left out and counted"
+else
+  fail "findings below 80 confidence are left out and counted"
 fi
 
 # The header check in commit-change.sh, against good and bad headers.
@@ -320,13 +328,29 @@ rm -rf "$tmp"
 tmp="$(mktemp -d)"
 if (
   publish_setup "$tmp"
+  head_sha="$(git -C "$tmp/seed" rev-parse feature)"
   cd "$tmp/work" && git config user.email t@t && git config user.name t && git switch -q feature && printf 'y\n' > y.txt
-  MODE=fix REPORT_JSON="$report_ok" OUT="$tmp/in" PR_NUMBER=14 HEAD_REF=feature BASE_REF=main RUNNER_TEMP="$tmp/rt" \
-    "$scripts/commit-change.sh" > /dev/null
+  MODE=fix REPORT_JSON="$report_ok" OUT="$tmp/in" PR_NUMBER=14 HEAD_REF=feature HEAD_SHA="$head_sha" BASE_REF=main \
+    RUNNER_TEMP="$tmp/rt" "$scripts/commit-change.sh" > /dev/null
   mkdir -p "$tmp/pub/rt"
-  publish "$tmp/pub" IN="$tmp/in" MODE=fix PR_NUMBER=14 HEAD_REF=feature BASE_REF=main > /dev/null
+  publish "$tmp/pub" IN="$tmp/in" MODE=fix PR_NUMBER=14 HEAD_REF=feature HEAD_SHA="$head_sha" BASE_REF=main > /dev/null
   [[ "$(git -C "$tmp/remote.git" rev-parse feature)" == "$(git -C "$tmp/work" rev-parse HEAD)" ]] && grep -q "^pr=14$" "$tmp/pub/out.txt"
 ); then pass "a fix is pushed to the pull request's branch"; else fail "a fix is pushed to the pull request's branch"; fi
+rm -rf "$tmp"
+tmp="$(mktemp -d)"
+if (
+  publish_setup "$tmp"
+  head_sha="$(git -C "$tmp/seed" rev-parse feature)"
+  cd "$tmp/work" && git config user.email t@t && git config user.name t && git switch -q feature && printf 'y\n' > y.txt
+  MODE=fix REPORT_JSON="$report_ok" OUT="$tmp/in" PR_NUMBER=14 HEAD_REF=feature HEAD_SHA="$head_sha" BASE_REF=main \
+    RUNNER_TEMP="$tmp/rt" "$scripts/commit-change.sh" > /dev/null
+  # Someone pushes to the pull request while the fix runs.
+  (cd "$tmp/seed" && git switch -q feature && printf 'z\n' > z.txt && git add z.txt && git commit -q -m theirs && git push -q origin feature)
+  git -C "$tmp/pub" fetch -q origin
+  mkdir -p "$tmp/pub/rt"
+  ! publish "$tmp/pub" IN="$tmp/in" MODE=fix PR_NUMBER=14 HEAD_REF=feature HEAD_SHA="$head_sha" BASE_REF=main > /dev/null 2>&1 &&
+    [[ "$(git -C "$tmp/remote.git" rev-parse feature)" == "$(git -C "$tmp/seed" rev-parse feature)" ]]
+); then pass "a fix never overwrites commits pushed after /fix was accepted"; else fail "a fix never overwrites commits pushed after /fix was accepted"; fi
 rm -rf "$tmp"
 tmp="$(mktemp -d)"
 if (
@@ -348,41 +372,138 @@ if (
   ! publish "$tmp/pub" IN="$tmp/in" MODE=build ISSUE_NUMBER=12 BASE_REF=main BASE_SHA="$(git -C "$tmp/seed" rev-parse main)" > /dev/null 2>&1 &&
     ! git -C "$tmp/remote.git" rev-parse -q --verify ai/issue-12-99-1 > /dev/null
 ); then pass "a title that isn't a Conventional Commits header is refused"; else fail "a title that isn't a Conventional Commits header is refused"; fi
+rm -rf "$tmp"
+tmp="$(mktemp -d)"
+if (
+  publish_setup "$tmp"
+  head_sha="$(git -C "$tmp/seed" rev-parse feature)"
+  (cd "$tmp/seed" && git switch -q main && printf 'n\n' > n.txt && git add n.txt && git commit -q -m newer && git push -q origin main)
+  # A fix that only brought in the base: the merge commit is its only new commit.
+  cd "$tmp/work" && git config user.email t@t && git config user.name t && git switch -q feature && git fetch -q origin &&
+    git merge -q --no-edit origin/main && git branch -f pipeline-result HEAD && mkdir -p "$tmp/in" &&
+    git bundle create -q "$tmp/in/change.bundle" pipeline-result "^${head_sha}" 2> /dev/null
+  echo '{"title":"fix(tasks): compare due dates in utc","committed":false}' > "$tmp/in/meta.json"
+  printf '%s' "$report_ok" > "$tmp/in/report.json"
+  # shellcheck disable=SC2016 # the stand-in's own $* and $0
+  printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$*" >> "$(dirname "$0")/calls"\n' > "$tmp/gh" && chmod +x "$tmp/gh"
+  git -C "$tmp/pub" fetch -q origin && mkdir -p "$tmp/pub/rt"
+  (cd "$tmp/pub" && env PATH="$tmp:$PATH" GH_TOKEN=x GITHUB_REPOSITORY=o/r GITHUB_RUN_ID=99 RUNNER_TEMP="$tmp/pub/rt" \
+    PIPELINE_PUSH_URL="$tmp/remote.git" IN="$tmp/in" MODE=fix PR_NUMBER=14 HEAD_REF=feature HEAD_SHA="$head_sha" \
+    BASE_REF=main "$scripts/publish.sh") > /dev/null
+  grep -q "Brought in the latest main" "$tmp/calls"
+); then pass "a fix that only brought in the base says so"; else fail "a fix that only brought in the base says so"; fi
 rm -rf "$tmp" "$fakebin"
 
 echo "Review comment"
-# A stand-in gh: lists two earlier reviews (one the pipeline's, one a person's quote of it) and records what's posted.
+# A stand-in gh that records what's posted; $1 = the comments the pull request already has.
+review_gh() {
+  cat > "$1/gh" <<GH
+#!/usr/bin/env bash
+log="\$(dirname "\$0")/calls"
+if [[ "\$1 \$2" == "pr comment" ]]; then echo "NEW" >> "\$log"; echo "https://github.com/o/r/pull/14#issuecomment-9"
+elif [[ "\$1 \$2" == "api -X" ]]; then echo "PATCH \$4" >> "\$log"; echo "https://github.com/o/r/pull/14#issuecomment-1"
+elif [[ "\$1 \$2" == "pr view" ]]; then echo '${3:-3f9c2e1a7b}'
+else echo '$2'
+fi
+GH
+  chmod +x "$1/gh"
+}
+for case in "none:[]:NEW" "existing:[{\"id\":1,\"user\":{\"login\":\"github-actions[bot]\"},\"body\":\"<!-- ai-pipeline:review -->\\nold\"},{\"id\":2,\"user\":{\"login\":\"jim\"},\"body\":\"<!-- ai-pipeline:review -->\\nquoted\"}]:PATCH repos/o/r/issues/comments/1"; do
+  name="${case%%:*}"; rest="${case#*:}"; comments="${rest%:*}"; want="${rest##*:}"
+  tmp="$(mktemp -d)"; review_gh "$tmp" "$comments"
+  if (
+    PATH="$tmp:$PATH" FINDINGS_DIR="$fixtures/review" PR_NUMBER=14 HEAD_SHA=3f9c2e1a7b GITHUB_REPOSITORY=o/r GH_TOKEN=x \
+      GITHUB_OUTPUT="$tmp/out" "$scripts/post-review.sh" > /dev/null
+    [[ "$(cat "$tmp/calls")" == "$want" ]] && grep -q "^url=https://github.com/o/r/pull/14#issuecomment-" "$tmp/out" &&
+      grep -q "^result=changes requested by 1 of 4 reviewers" "$tmp/out"
+  ); then pass "the review comment: ${name} → ${want%% *}, its link and result returned"; else fail "the review comment: ${name} → ${want%% *}, its link and result returned"; cat "$tmp/calls" "$tmp/out"; fi
+  rm -rf "$tmp"
+done
+tmp="$(mktemp -d)"; review_gh "$tmp" "[]" "9999999newer"
+if (
+  PATH="$tmp:$PATH" FINDINGS_DIR="$fixtures/review" PR_NUMBER=14 HEAD_SHA=3f9c2e1a7b GITHUB_REPOSITORY=o/r GH_TOKEN=x \
+    GITHUB_OUTPUT="$tmp/out" "$scripts/post-review.sh" > /dev/null 2>&1
+  [[ ! -s "$tmp/calls" ]] && grep -q "^result=not posted" "$tmp/out"
+); then pass "an older review never replaces a newer one"; else fail "an older review never replaces a newer one"; fi
+rm -rf "$tmp"
+tmp="$(mktemp -d)"; review_gh "$tmp" "[]"
+if (
+  PATH="$tmp:$PATH" FINDINGS_DIR="$fixtures/review" PR_NUMBER=14 HEAD_SHA=3f9c2e1a7b GITHUB_REPOSITORY=o/r GH_TOKEN=x \
+    MIN_CONFIDENCE=08 GITHUB_OUTPUT="$tmp/out" "$scripts/post-review.sh" > /dev/null 2>&1
+  grep -q "^result=" "$tmp/out"
+); then pass "a confidence minimum like 08 is read as 8"; else fail "a confidence minimum like 08 is read as 8"; fi
+rm -rf "$tmp"
+
+echo "Status"
+# A stand-in gh that records every call's arguments.
+status_gh() {
+  cat > "$1/gh" <<'GH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$(dirname "$0")/calls"
+if [[ "$*" == *"--jq .id"* ]]; then echo 555; fi
+if [[ "$*" == *"/comments --paginate"* ]]; then echo '[]'; fi
+GH
+  chmod +x "$1/gh"
+}
+status_env=(GH_TOKEN=x GITHUB_REPOSITORY=o/r GITHUB_SERVER_URL=https://github.com GITHUB_RUN_ID=77 NUMBER=12 COMMENT_ID=4 STAGE=Plan)
+tmp="$(mktemp -d)"; status_gh "$tmp"
+if (
+  env PATH="$tmp:$PATH" "${status_env[@]}" GITHUB_OUTPUT="$tmp/out" SUPERSEDE=true "$scripts/post-status.sh" start > /dev/null
+  grep -q "comments/4/reactions -f content=eyes" "$tmp/calls" && grep -q "⏳ \*\*Plan\*\* running" "$tmp/calls" &&
+    grep -q "run=77" "$tmp/calls" && grep -q "^status_id=555$" "$tmp/out"
+); then pass "start: 👀 on the command and one status comment"; else fail "start: 👀 on the command and one status comment"; cat "$tmp/calls"; fi
+rm -rf "$tmp"
+finish() { # $1 = command, $2 = needs JSON, $3 = what the status comment must say
+  local tmp; tmp="$(mktemp -d)"; status_gh "$tmp"
+  if (
+    env PATH="$tmp:$PATH" "${status_env[@]}" RUNNER_TEMP="$tmp/rt" STATUS_ID=555 COMMAND="$1" NEEDS="$2" \
+      "$scripts/finish.sh" > /dev/null
+    grep -q -- "$3" "$tmp/calls"
+  ); then pass "finish ($1): $3"; else fail "finish ($1): $3"; cat "$tmp/calls"; fi
+  rm -rf "$tmp"
+}
+finish plan '{"plan":{"result":"success","outputs":{"url":"https://x/c1","ready":"true"}}}' "Comment \`/approve\` to build it"
+finish approve '{"build":{"result":"success"},"publish":{"result":"success","outputs":{"url":"https://x/pull/5"}},"review":{"result":"success"},"summarize":{"result":"success","outputs":{"url":"https://x/r","result":"no blocking findings"}}}' 'opened https://x/pull/5 · \[AI review\](https://x/r): no blocking findings'
+finish fix '{"build":{"result":"success"},"publish":{"result":"success","outputs":{"note":"Already done."}}}' 'nothing to change: Already done.'
+finish fix '{"build":{"result":"failure"}}' '⚠️ \*\*Plan\*\* failed'
+finish approve '{"build":{"result":"cancelled"}}' 'build job stopped at its time limit'
+finish approve '{"build":{"result":"success"},"publish":{"result":"success","outputs":{"url":"https://x/pull/5"}},"review":{"result":"failure"},"summarize":{"result":"success","outputs":{"url":"https://x/r","result":"no blocking findings"}}}' "\*\* done, but the review didn't finish · opened https://x/pull/5"
+finish review '{"review":{"result":"failure"},"summarize":{"result":"skipped"}}' '⚠️ \*\*Plan\*\* failed'
 tmp="$(mktemp -d)"
 cat > "$tmp/gh" <<'GH'
 #!/usr/bin/env bash
-log="$(dirname "$0")/calls"
-if [[ "$1 $2" == "pr comment" ]]; then printf 'NEW %s\n' "${@: -1}" >> "$log"
-elif [[ "$1 $2" == "api -X" ]]; then printf 'PATCH %s %s\n' "$4" "$6" >> "$log"
-else echo '[{"id":1,"user":{"login":"github-actions[bot]"},"body":"<!-- ai-pipeline:review -->\nold findings"}]'
-     echo '[{"id":2,"user":{"login":"jim"},"body":"<!-- ai-pipeline:review -->\nquoted"}]'
+printf '%s\n' "$*" >> "$(dirname "$0")/calls"
+if [[ "$*" == *"status=in_progress"* ]]; then
+  echo '{"id":101,"display_title":"/fix #12 by @jim"}'
+  echo '{"id":102,"display_title":"/fix #120 by @jim"}'
+  echo '{"id":103,"display_title":"/review #12 by @jim"}'
+  echo '{"id":77,"display_title":"/cancel #12 by @jim"}'
+fi
+if [[ "$*" == *"runs/103/cancel"* ]]; then exit 1; fi
+if [[ "$*" == *"/comments --paginate"* ]]; then
+  echo '[{"id":9,"user":{"login":"github-actions[bot]"},"body":"<!-- ai-pipeline:status run=101 -->\n⏳ **Fix** running"},
+         {"id":10,"user":{"login":"github-actions[bot]"},"body":"<!-- ai-pipeline:status run=103 -->\n✅ **Fix** done"}]'
 fi
 GH
 chmod +x "$tmp/gh"
 if (
-  PATH="$tmp:$PATH" FINDINGS_DIR="$fixtures/review" PR_NUMBER=14 HEAD_SHA=3f9c2e1a7b GITHUB_REPOSITORY=o/r GH_TOKEN=x \
-    "$scripts/post-review.sh" > /dev/null
-  grep -q "^NEW <!-- ai-pipeline:review -->" "$tmp/calls" &&
-    grep -q "^PATCH repos/o/r/issues/comments/1 body=<!-- ai-pipeline:review-outdated -->" "$tmp/calls" &&
-    ! grep -q "comments/2" "$tmp/calls"
-); then pass "a review is posted as a new comment and only the pipeline's earlier review is marked outdated"; else fail "a review is posted as a new comment and only the pipeline's earlier review is marked outdated"; cat "$tmp/calls"; fi
+  env PATH="$tmp:$PATH" "${status_env[@]}" ACTOR=jim WORKFLOW_FILE=ai-pipeline.yml "$scripts/cancel-runs.sh" > /dev/null
+  grep -q "runs/101/cancel" "$tmp/calls" && ! grep -q "runs/102/cancel\|runs/77/cancel" "$tmp/calls" &&
+    grep -q "comments/9 -f body=<!-- ai-pipeline:status run=101 -->" "$tmp/calls" && grep -q "⏹ \*\*Fix\*\* cancelled by @jim" "$tmp/calls" &&
+    ! grep -q "comments/10 " "$tmp/calls"
+); then pass "/cancel cancels only this issue's runs, and marks only the ones it really cancelled"; else fail "/cancel cancels only this issue's runs, and marks only the ones it really cancelled"; cat "$tmp/calls"; fi
 rm -rf "$tmp"
 
 echo "Commands"
-gate() { env -i PATH="$PATH" ACTOR=jim GITHUB_REPOSITORY=o/r GH_TOKEN=x COMMAND=/plan COMMENT_BODY="$1" "$scripts/require-write-access.sh" > /dev/null 2>&1; }
-for bad in "/planning" "/approve" "please /plan" ""; do
-  if gate "$bad"; then fail "rejects the comment: '$bad'"; else pass "rejects the comment: '$bad'"; fi
+parse() { COMMENT_BODY="$1" IS_PR="$2" "$scripts/parse-command.sh"; }
+for c in "/plan:false:plan" "/Plan:false:plan" "/plan use UTC:false:plan" $'/plan\nAnswers: yes:false:plan' \
+  $'/plan\r\nAnswers: yes:false:plan' $'/approve\r\n:false:approve' $'/fix\r\n- add a test:true:fix' "/approve:false:approve" \
+  "/fix add a test:true:fix" "/review:true:review" "/cancel:true:cancel" "/cancel:false:cancel" \
+  "/planning:false:" "/approved:false:" "please /plan:false:" "/fix:false:" "/plan:true:" "/approve:true:" "/review:false:" ":false:"; do
+  want="${c##*:}"; rest="${c%:*}"; is_pr="${rest##*:}"; body="${rest%:*}"
+  if [[ "$(parse "$body" "$is_pr")" == "$want" ]]; then pass "'${body%%$'\n'*}' on $([[ $is_pr == true ]] && echo a PR || echo an issue) → ${want:-nothing}"
+  else fail "'${body%%$'\n'*}' on $([[ $is_pr == true ]] && echo a PR || echo an issue) → ${want:-nothing}"; fi
 done
-fakebin="$(mktemp -d)"
-printf '#!/usr/bin/env bash\necho write\n' > "$fakebin/gh" && chmod +x "$fakebin/gh"
-for good in "/plan" "/Plan" "/plan use UTC" $'/plan\nAnswers: yes'; do
-  if PATH="$fakebin:$PATH" gate "$good"; then pass "accepts the comment: '${good%%$'\n'*}'"; else fail "accepts the comment: '${good%%$'\n'*}'"; fi
-done
-rm -rf "$fakebin"
 
 echo "Installer"
 tmp="$(mktemp -d)"
@@ -390,7 +511,7 @@ git init -q "$tmp"
 echo "# Existing rules" > "$tmp/CLAUDE.md"
 if "$root/scripts/install.sh" "$tmp" > /dev/null; then
   if [[ -x "$tmp/pipeline/scripts/publish.sh" ]]; then pass "installs executable scripts"; else fail "installs executable scripts"; fi
-  if [[ -f "$tmp/.github/workflows/ai-build.yml" ]]; then pass "installs the workflows"; else fail "installs the workflows"; fi
+  if [[ -f "$tmp/.github/workflows/ai-pipeline.yml" ]]; then pass "installs the workflow"; else fail "installs the workflow"; fi
   if [[ "$(cat "$tmp/CLAUDE.md")" == "# Existing rules" ]]; then pass "keeps an existing CLAUDE.md"; else fail "keeps an existing CLAUDE.md"; fi
 else
   fail "install.sh runs"
