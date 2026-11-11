@@ -1,6 +1,7 @@
 {
   "lens": "requirements",
   "verdict": "approve",
+  "previous": [],
   "findings": [],
   "coverage": {
     "filesChecked": [

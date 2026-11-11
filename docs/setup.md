@@ -425,8 +425,10 @@ Ordinary comments also start a run (GitHub starts the workflow for every comment
    the findings ranked by severity (each with a confidence score; below 80 is left out and counted), and a
    **⚠️ Not checked** list of anything a reviewer didn't get to. A review with no findings but a long "Not checked"
    list wasn't thorough: comment `/review` again, or raise `PIPELINE_MAX_TURNS_REVIEW`.
-4. Every later review **updates that same comment** (its header names the commit reviewed); the command's status links
-   straight to it.
+4. Every later review is a **new comment** (its header names the commit reviewed); earlier review comments are never
+   edited. Each reviewer first checks its own findings from the last review, and the new comment opens with **Since
+   the last review**: ✅ fixed, ❌ still there or ➖ no longer applies for each, linking back to that review. The
+   command's status links straight to the new comment.
 
 ### 10.4 Fix (about 10–30 minutes)
 

@@ -1,6 +1,7 @@
 {
   "lens": "security",
   "verdict": "approve",
+  "previous": [],
   "findings": [
     {
       "severity": "medium",

@@ -25,8 +25,17 @@ _and comments on the pull request:_
 > - `src/tasks/task-routes.ts`: compare against the start of today in UTC
 > - `test/tasks.test.ts`: time-zone test for the overdue ordering
 
-_The review runs again in the same run and updates the review comment: no findings. The `/fix` comment has 👀 and
-then 👍, and its status comment reads:_
+_The review runs again in the same run and posts a new review comment (the first one stays as it was). Each reviewer
+checked its findings from the first review before looking for new ones, so the new comment opens with:_
+
+> ### Since the [last review](#)
+>
+> - ❌ Still there: **Ordering test relies on insertion order for equal due dates** · `test/tasks.test.ts` (tests):
+>   Tasks with the same due date are still compared without a tie-breaker.
+> - ✅ Fixed: **Overdue check compares dates in the server's time zone** · `src/tasks/task-routes.ts`
+>   (correctness, tests): Compares against the start of today in UTC; the new test covers `TZ=America/Los_Angeles`.
+
+_The low finding still there doesn't block. The `/fix` comment has 👀 and then 👍, and its status comment reads:_
 
 > ✅ **Fix** done · [pushed the fix](#) · [AI review](#): no blocking findings · [run](#)
 

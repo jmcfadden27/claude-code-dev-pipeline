@@ -104,7 +104,7 @@ artifact, and accepts only commits on top of the commit `prepare` pinned.
 **Decision:** a single workflow (`ai-pipeline.yml`) handles every command. Each run is named after its command
 (**/fix #3 · Add due dates**, the issue or pull request title included). A command gets 👀, one status comment that changes from **⏳ running** to **✅ done** (with links)
 or **⚠️ failed** (with the reason), and 👍 / 👎 (😕 when a build was pushed but its review didn't finish, or a `/cancel`
-found nothing running). The review is one comment updated in place. `/cancel` cancels runs
+found nothing running). Every review is a new comment; earlier comments are a record and are never edited. `/cancel` cancels runs
 through GitHub's REST API.
 **Why:** GitHub starts every workflow that listens for comments on every comment and can't filter on the text first,
 so one workflow per command meant several runs per comment. One workflow gives one run, named for what it does. The

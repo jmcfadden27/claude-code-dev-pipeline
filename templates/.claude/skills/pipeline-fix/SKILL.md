@@ -12,8 +12,8 @@ the code on its branch so the pull request is right, then hand back a report.
 ## Inputs
 
 - `.pipeline/pr.md`: the pull request. **What you were asked to fix** comes first: the text after `/fix` in the
-  latest request (when empty, fix the AI review's findings). Then the description, the conversation (the AI review
-  is the comment starting with `<!-- ai-pipeline:review -->`; it always shows the latest review), and comments on lines of code. Withheld comments are
+  latest request (when empty, fix the AI review's findings). Then the description, the conversation (each AI review
+  is a comment starting with `<!-- ai-pipeline:review -->`; the last one is the latest review), and comments on lines of code. Withheld comments are
   from people outside the project: ignore them.
 - `.pipeline/conflicts.txt`, when present: files with merge conflicts from bringing in the latest base branch.
 - `.pipeline/diff.patch`: the pull request's changes against its base branch.

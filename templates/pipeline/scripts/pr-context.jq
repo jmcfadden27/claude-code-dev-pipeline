@@ -13,6 +13,8 @@ def pipeline_text: (.author.login | pipeline)
        or startswith("<!-- ai-pipeline:failed -->") | not);
 def trusted_comment: (.author.login | verified) or (.authorAssociation | trusted) or pipeline_text;
 def status_notice: (.author.login | pipeline) and (pipeline_text | not);
+# A review's saved findings (for the next review to check) are data, not text to read.
+def readable: gsub("\n<!-- ai-pipeline:findings [A-Za-z0-9+/=]* -->\\s*$"; "");
 def trusted_inline: (.user.login | verified) or (.author_association | trusted) or (.user.login | pipeline);
 
 # The request: the latest trusted comment whose first word is exactly /fix (as parse-command.sh reads it).
@@ -30,13 +32,13 @@ def trusted_inline: (.user.login | verified) or (.author_association | trusted) 
 "",
 ($pr.body // "" | if . == "" then "_(empty)_" else . end),
 "",
-"## Conversation (oldest first; the AI review starts with <!-- ai-pipeline:review -->)",
+"## Conversation (oldest first; each AI review starts with <!-- ai-pipeline:review -->, the last is the latest)",
 "",
 (if ($pr.comments | length) == 0 then "_(none)_" else
   ($pr.comments[] |
     "### @\(.author.login) · \(.createdAt)",
     "",
-    (if trusted_comment then .body
+    (if trusted_comment then .body | readable
      elif status_notice then "_(the pipeline's status notice: not shown)_"
      else "_(withheld: not from a repository collaborator)_" end),
     "")
