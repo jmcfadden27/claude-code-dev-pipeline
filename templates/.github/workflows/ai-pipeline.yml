@@ -68,6 +68,7 @@ jobs:
       base: ${{ steps.target.outputs.base }}
       base_sha: ${{ steps.target.outputs.base_sha }}
       issue: ${{ steps.target.outputs.issue }}
+      approved: ${{ steps.target.outputs.approved }}
     env:
       GH_TOKEN: ${{ github.token }}
       NUMBER: ${{ github.event.issue.number }}
@@ -120,17 +121,18 @@ jobs:
               echo "issue=$NUMBER" >> "$GITHUB_OUTPUT"
               ;;
             approve)
-              # Only the pipeline's own plan comments count.
-              plans="$(gh api "repos/${GITHUB_REPOSITORY}/issues/${NUMBER}/comments" --paginate \
-                --jq '[.[] | select(.user.login == "github-actions[bot]" and (.body | startswith("<!-- ai-pipeline:plan -->")))] | length' \
-                | jq -s add)"
-              [[ "$plans" != "0" ]] || reason "There is no plan on this issue yet. Comment \`/plan\` first."
-              # The build starts from this exact commit, so the default branch can move on while it runs.
-              { echo "issue=$NUMBER"; echo "base=$DEFAULT_BRANCH"; echo "base_sha=$(git rev-parse HEAD)"; } >> "$GITHUB_OUTPUT"
+              # The latest plan before this /approve, and it must be ready to build.
+              ISSUE_NUMBER="$NUMBER" ./pipeline/scripts/approved-plan.sh
+              # The build starts from this exact commit, so the default branch can move on while it runs. Every stage
+              # reads the issue thread only up to this /approve, so a /plan after it can't change what gets built.
+              {
+                echo "issue=$NUMBER"; echo "base=$DEFAULT_BRANCH"; echo "base_sha=$(git rev-parse HEAD)"
+                echo "approved=$COMMENT_ID"
+              } >> "$GITHUB_OUTPUT"
               ;;
             fix | review)
               pr="$(gh pr view "$NUMBER" --repo "$GITHUB_REPOSITORY" \
-                --json number,state,headRefName,headRefOid,baseRefName,isCrossRepository,closingIssuesReferences)"
+                --json number,state,headRefName,headRefOid,baseRefName,isCrossRepository,closingIssuesReferences,body)"
               head="$(jq -r .headRefName <<< "$pr")"
               base="$(jq -r .baseRefName <<< "$pr")"
               [[ "$(jq -r .state <<< "$pr")" == "OPEN" ]] || reason "This pull request is not open."
@@ -145,6 +147,8 @@ jobs:
                 echo "head_sha=$(jq -r .headRefOid <<< "$pr")"
                 echo "base=$base"
                 echo "issue=$(jq -r '.closingIssuesReferences[0].number // empty' <<< "$pr")"
+                # The /approve the pull request was built from (render-pr-body.jq); none on pull requests a person opened.
+                echo "approved=$(jq -r '.body // "" | capture("<!-- ai-pipeline:approved (?<id>[0-9]+) -->").id // empty' <<< "$pr")"
               } >> "$GITHUB_OUTPUT"
               ;;
           esac
@@ -231,6 +235,7 @@ jobs:
     env:
       MODE: ${{ needs.prepare.outputs.command == 'fix' && 'fix' || 'build' }}
       ISSUE_NUMBER: ${{ needs.prepare.outputs.issue }}
+      APPROVED_COMMENT: ${{ needs.prepare.outputs.approved }}
       PR_NUMBER: ${{ needs.prepare.outputs.pr }}
       HEAD_REF: ${{ needs.prepare.outputs.head_ref }}
       HEAD_SHA: ${{ needs.prepare.outputs.head_sha }}
@@ -389,6 +394,7 @@ jobs:
           IN: ${{ runner.temp }}/in
           MODE: ${{ needs.prepare.outputs.command == 'fix' && 'fix' || 'build' }}
           ISSUE_NUMBER: ${{ needs.prepare.outputs.issue }}
+          APPROVED_COMMENT: ${{ needs.prepare.outputs.approved }}
           PR_NUMBER: ${{ needs.prepare.outputs.pr }}
           HEAD_REF: ${{ needs.prepare.outputs.head_ref }}
           HEAD_SHA: ${{ needs.prepare.outputs.head_sha }}
@@ -425,6 +431,7 @@ jobs:
       HEAD_SHA: ${{ needs.publish.outputs.sha || needs.prepare.outputs.head_sha }}
       BASE_REF: ${{ needs.prepare.outputs.base }}
       ISSUE_NUMBER: ${{ needs.prepare.outputs.issue }}
+      APPROVED_COMMENT: ${{ needs.prepare.outputs.approved }}
     steps:
       - uses: actions/checkout@v6
         with:

@@ -23,6 +23,9 @@ few jobs: deterministic steps before and after a Claude Code agent run (four in 
 3. **It acknowledges and works out the target.** 👀 on your comment, and one status comment: **⏳ Fix running · follow
    the run · comment `/cancel` to stop it**. Then the target: for `/approve` the exact default-branch commit to build
    on; for `/fix` and `/review` the pull request's head commit, pinned now, so later pushes can't slip into the run.
+   `/approve` also needs the latest plan before it to be ready (`approved-plan.sh`), and pins the issue thread at the
+   `/approve` comment: the build, and the reviews and fixes of its pull request (which records the comment's ID), read
+   the thread only up to it, so a `/plan` posted later can't change what is built or what it is reviewed against.
 4. **The agent job runs.** `anthropics/claude-code-action` installs Claude Code on a fresh runner and runs it
    non-interactively with a skill as the prompt (`/pipeline-plan`, `/pipeline-build`, `/pipeline-fix`,
    `/pipeline-review <lens>`). Claude Code loads `CLAUDE.md` and the skill, works with only the tools in
@@ -69,11 +72,13 @@ stateDiagram-v2
 | --- | --- |
 | Trigger | `/plan` on an issue (with your answers or changes after it, when re-planning) |
 | Agent | `/pipeline-plan` · tools `Read, Glob, Grep` · 60 turns · 30-minute job (adjustable) |
-| Output | [`plan.schema.json`](../templates/pipeline/schemas/plan.schema.json): summary, approach, steps, files, risks, questions, readyToBuild |
+| Output | [`plan.schema.json`](../templates/pipeline/schemas/plan.schema.json): summary, approach, steps, files, acceptanceCriteria, risks, questions, readyToBuild |
 | Effect | a plan comment (marked `<!-- ai-pipeline:plan -->`); status label `ai:needs-answers` or `ai:plan-ready` |
 
 The planner decides technical details itself and asks only about what the requester must decide: behaviour, scope,
-trade-offs and anything destructive. Re-planning reads the earlier plan and the answers from the thread, so the plan
+trade-offs and anything destructive. It turns the request's acceptance criteria into checkable ones, each with how it
+is checked, and asks about any that are vague; the builder works to that list and the requirements reviewer checks
+the pull request against it. Re-planning reads the earlier plan and the answers from the thread, so the plan
 converges instead of starting over.
 
 ## Build (`/approve`) and Fix (`/fix`)

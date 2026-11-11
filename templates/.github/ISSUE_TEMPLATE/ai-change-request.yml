@@ -18,7 +18,7 @@ body:
     id: acceptance
     attributes:
       label: Acceptance criteria
-      description: How will you check it works? One per line.
+      description: How will you check it works? One per line, specific enough to test. The plan asks about any that are vague.
       placeholder: |
         - A task can be created and updated with an optional due date
         - GET /tasks lists overdue tasks first

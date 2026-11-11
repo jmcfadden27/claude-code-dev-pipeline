@@ -22,6 +22,13 @@ Add a nullable due_date column through a new migration, expose it on the task mo
 - `src/tasks/task-routes.ts` (modify)
 - `test/tasks.test.ts` (modify)
 
+### Acceptance criteria
+
+1. A task can be created and updated with an optional due date  
+   _Check:_ API tests create and update tasks with and without dueDate
+2. GET /tasks lists overdue tasks first  
+   _Check:_ An API test lists tasks with past, future and no due dates and checks the order
+
 ### Risks
 
 - Existing API clients ignore the new field; ordering of GET /tasks changes for everyone

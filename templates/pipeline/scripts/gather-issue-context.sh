@@ -9,7 +9,10 @@
 #
 # The agent keeps no memory between runs; this file is the whole conversation (request, plan, answers, approval).
 #
-# Env: ISSUE_NUMBER, GH_TOKEN, GITHUB_REPOSITORY; optional OUT (default .pipeline/issue.md).
+# With APPROVED_COMMENT (the /approve a build started from), the thread stops at that comment: the plan it approved is
+# the latest one the agent sees, even when someone comments /plan again while the build waits or runs.
+#
+# Env: ISSUE_NUMBER, GH_TOKEN, GITHUB_REPOSITORY; optional OUT (default .pipeline/issue.md), APPROVED_COMMENT.
 set -euo pipefail
 
 : "${ISSUE_NUMBER:?ISSUE_NUMBER is required}"
@@ -19,6 +22,6 @@ mkdir -p "$(dirname "$out")"
 here="$(dirname "$0")"
 issue="$(gh issue view "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" --json number,title,body,author,comments)"
 trusted="$(jq -r '.comments[].author.login' <<< "$issue" | "$here/trusted-authors.sh")"
-jq -r --argjson trusted "$trusted" -f "$here/issue-context.jq" <<< "$issue" > "$out"
+jq -r --argjson trusted "$trusted" --arg approved "${APPROVED_COMMENT:-}" -f "$here/issue-context.jq" <<< "$issue" > "$out"
 
 echo "Wrote $(wc -l < "$out") lines of issue context to $out."
