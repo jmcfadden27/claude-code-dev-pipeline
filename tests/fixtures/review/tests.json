@@ -1,6 +1,7 @@
 {
   "lens": "tests",
   "verdict": "approve",
+  "previous": [],
   "findings": [
     {
       "severity": "medium",

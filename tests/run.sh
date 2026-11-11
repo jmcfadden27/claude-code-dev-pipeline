@@ -42,7 +42,7 @@ for f in "$schemas"/*.json "$fixtures"/*.json "$fixtures"/review/*.json "$root"/
 done
 for f in "$scripts"/*.jq; do
   # Compile only: wrap the program so it never runs.
-  if jq -n --arg sha x --arg issue 1 --arg kind x --arg pr 1 --arg note x --arg approved x --argjson min 80 --argjson inline '[]' --argjson trusted '[]' "empty | ($(cat "$f")
+  if jq -n --arg sha x --arg issue 1 --arg kind x --arg pr 1 --arg note x --arg approved x --arg previous x --argjson min 80 --argjson inline '[]' --argjson trusted '[]' "empty | ($(cat "$f")
 )" > /dev/null 2>&1; then
     pass "jq compiles ${f#"$root"/}"
   else
@@ -96,7 +96,7 @@ echo "Renderers"
 check_render plan-with-questions "$(jq -r -f "$scripts/render-plan.jq" "$fixtures/plan-with-questions.json")"
 check_render plan-ready "$(jq -r -f "$scripts/render-plan.jq" "$fixtures/plan-ready.json")"
 check_render pr-body "$(jq -r --arg issue 12 --arg approved "" -f "$scripts/render-pr-body.jq" "$fixtures/build-report.json")"
-check_render review "$(jq -s -r --arg sha 3f9c2e1a7b --argjson min 80 -f "$scripts/render-review.jq" "$fixtures"/review/*.json)"
+check_render review "$(jq -s -r --arg sha 3f9c2e1a7b --argjson min 80 --arg previous "" -f "$scripts/render-review.jq" "$fixtures"/review/*.json)"
 check_render commit-message "$(jq -r --arg kind build --arg issue 12 --arg pr "" --arg note "" -f "$scripts/commit-message.jq" "$fixtures/build-report.json")"
 check_render commit-message-breaking "$(jq '.commit.breaking = true | .commit.breakingChange = "GET /tasks no longer sorts by creation time first."' "$fixtures/build-report.json" \
   | jq -r --arg kind build --arg issue 12 --arg pr "" --arg note "" -f "$scripts/commit-message.jq")"
@@ -130,7 +130,7 @@ if grep -A2 "What you were asked to fix" <<< "$prctx" | grep -q "compare dates i
 if grep -q "src/tasks/task-routes.ts:42" <<< "$prctx"; then pass "line comments reach the agent"; else fail "line comments reach the agent"; fi
 if grep -q "STATUS-INJECTION" <<< "$prctx"; then fail "status comments are withheld from the fix agent"; else pass "status comments are withheld from the fix agent"; fi
 if grep -A2 "What you were asked to fix" <<< "$prctx" | grep -q "fixed it locally"; then fail "'/fixed …' is not a fix request"; else pass "'/fixed …' is not a fix request"; fi
-review="$(jq -s -r --arg sha 3f9c2e1a7b --argjson min 80 -f "$scripts/render-review.jq" "$fixtures"/review/*.json)"
+review="$(jq -s -r --arg sha 3f9c2e1a7b --argjson min 80 --arg previous "" -f "$scripts/render-review.jq" "$fixtures"/review/*.json)"
 if [[ "$(grep -c "Overdue check compares dates" <<< "$review")" == "1" ]]; then
   pass "duplicate findings across lenses are merged"
 else
@@ -526,22 +526,25 @@ review_gh() {
 #!/usr/bin/env bash
 log="\$(dirname "\$0")/calls"
 if [[ "\$1 \$2" == "pr comment" ]]; then echo "NEW" >> "\$log"; echo "https://github.com/o/r/pull/14#issuecomment-9"
-elif [[ "\$1 \$2" == "api -X" ]]; then echo "PATCH \$4" >> "\$log"; echo "https://github.com/o/r/pull/14#issuecomment-1"
+elif [[ "\$1 \$2" == "api -X" ]]; then echo "EDIT \$4" >> "\$log"
 elif [[ "\$1 \$2" == "pr view" ]]; then echo '${3:-3f9c2e1a7b}'
 else echo '$2'
 fi
 GH
   chmod +x "$1/gh"
 }
-for case in "none:[]:NEW" "existing:[{\"id\":1,\"user\":{\"login\":\"github-actions[bot]\"},\"body\":\"<!-- ai-pipeline:review -->\\nold\"},{\"id\":2,\"user\":{\"login\":\"jim\"},\"body\":\"<!-- ai-pipeline:review -->\\nquoted\"}]:PATCH repos/o/r/issues/comments/1"; do
-  name="${case%%:*}"; rest="${case#*:}"; comments="${rest%:*}"; want="${rest##*:}"
+# Every review is a new comment; an earlier review is never edited.
+earlier='[{"id":1,"html_url":"https://github.com/o/r/pull/14#issuecomment-1","user":{"login":"github-actions[bot]"},"body":"<!-- ai-pipeline:review -->\nold"}]'
+for name in first re-review; do
+  if [[ "$name" == "first" ]]; then comments="[]"; else comments="$earlier"; fi
   tmp="$(mktemp -d)"; review_gh "$tmp" "$comments"
   if (
     PATH="$tmp:$PATH" FINDINGS_DIR="$fixtures/review" PR_NUMBER=14 HEAD_SHA=3f9c2e1a7b GITHUB_REPOSITORY=o/r GH_TOKEN=x \
       GITHUB_OUTPUT="$tmp/out" "$scripts/post-review.sh" > /dev/null
-    [[ "$(cat "$tmp/calls")" == "$want" ]] && grep -q "^url=https://github.com/o/r/pull/14#issuecomment-" "$tmp/out" &&
+    [[ "$(cat "$tmp/calls")" == "NEW" ]] && grep -q "^url=https://github.com/o/r/pull/14#issuecomment-9" "$tmp/out" &&
       grep -q "^result=changes requested by 1 of 4 reviewers" "$tmp/out"
-  ); then pass "the review comment: ${name} → ${want%% *}, its link and result returned"; else fail "the review comment: ${name} → ${want%% *}, its link and result returned"; cat "$tmp/calls" "$tmp/out"; fi
+  ); then pass "the review comment: ${name} → a new comment, nothing edited, its link and result returned"
+  else fail "the review comment: ${name} → a new comment, nothing edited, its link and result returned"; cat "$tmp/calls" "$tmp/out"; fi
   rm -rf "$tmp"
 done
 tmp="$(mktemp -d)"; review_gh "$tmp" "[]" "9999999newer"
@@ -549,7 +552,7 @@ if (
   PATH="$tmp:$PATH" FINDINGS_DIR="$fixtures/review" PR_NUMBER=14 HEAD_SHA=3f9c2e1a7b GITHUB_REPOSITORY=o/r GH_TOKEN=x \
     GITHUB_OUTPUT="$tmp/out" "$scripts/post-review.sh" > /dev/null 2>&1
   [[ ! -s "$tmp/calls" ]] && grep -q "^result=not posted" "$tmp/out"
-); then pass "an older review never replaces a newer one"; else fail "an older review never replaces a newer one"; fi
+); then pass "a review of an older commit is never posted after a newer one"; else fail "a review of an older commit is never posted after a newer one"; fi
 rm -rf "$tmp"
 tmp="$(mktemp -d)"; review_gh "$tmp" "[]"
 if (
@@ -558,6 +561,110 @@ if (
   grep -q "^result=" "$tmp/out"
 ); then pass "a confidence minimum like 08 is read as 8"; else fail "a confidence minimum like 08 is read as 8"; fi
 rm -rf "$tmp"
+
+echo "Re-review"
+first="$(jq -s -r --arg sha 3f9c2e1a7b --argjson min 80 --arg previous "" -f "$scripts/render-review.jq" "$fixtures"/review/*.json)"
+if ! grep -q "Since the last review" <<< "$first"; then pass "a first review has no 'Since the last review'"; else fail "a first review has no 'Since the last review'"; fi
+# Two lenses check the same earlier finding and disagree: the worse status wins, with both lenses named.
+again="$(mktemp -d)"
+jq '.previous = [{title: "Overdue check compares dates in the server'"'"'s time zone", file: "src/tasks/task-routes.ts", status: "fixed", note: "Now compares in UTC."}]' \
+  "$fixtures/review/correctness.json" > "$again/correctness.json"
+jq '.previous = [{title: "Overdue check compares dates in the server'"'"'s time zone", file: "src/tasks/task-routes.ts", status: "still-present", note: "The list endpoint still uses local time."},
+  {title: "Ordering test relies on insertion order for equal due dates", file: "test/tasks.test.ts", status: "fixed", note: "Ties are sorted by id."}]' \
+  "$fixtures/review/tests.json" > "$again/tests.json"
+cp "$fixtures/review/security.json" "$fixtures/review/requirements.json" "$again/"
+since="$(jq -s -r --arg sha 4a1b2c3d --argjson min 80 --arg previous "https://github.com/o/r/pull/14#issuecomment-1" -f "$scripts/render-review.jq" "$again"/*.json)"
+if grep -q "^### Since the \[last review\](https://github.com/o/r/pull/14#issuecomment-1)$" <<< "$since" &&
+  grep -q "^- ❌ Still there: \*\*Overdue check.*(correctness, tests)" <<< "$since" &&
+  grep -q "^- ✅ Fixed: \*\*Ordering test" <<< "$since" &&
+  [[ "$(grep -n "Still there" <<< "$since" | cut -d: -f1)" -lt "$(grep -n "Fixed:" <<< "$since" | cut -d: -f1)" ]]; then
+  pass "a re-review lists what happened to the last review's findings, the worse status winning"
+else
+  fail "a re-review lists what happened to the last review's findings, the worse status winning"
+fi
+rm -rf "$again"
+
+# last-review.sh (prepare), then previous-findings.sh (each lens) with the ID it found, against a stand-in gh that
+# serves the pull request's comments ($2) and each comment by its ID.
+findings_gh() {
+  printf '%s' "$2" > "$1/comments.json"
+  cat > "$1/gh" <<'GH'
+#!/usr/bin/env bash
+comments="$(dirname "$0")/comments.json"
+if [[ "$2" =~ /issues/comments/([0-9]+)$ ]]; then jq --argjson id "${BASH_REMATCH[1]}" '.[] | select(.id == $id)' "$comments"
+else cat "$comments"; fi
+GH
+  chmod +x "$1/gh"
+}
+# $1 = the case, $2 = the lens, $3 = the comments, $4 = the titles expected (one per line; "" for none); optional $5 =
+# a review ID to use instead of the one last-review.sh finds.
+previous_case() {
+  local tmp id; tmp="$(mktemp -d)"; findings_gh "$tmp" "$3"
+  if PATH="$tmp:$PATH" PR_NUMBER=14 GITHUB_REPOSITORY=o/r GH_TOKEN=x GITHUB_OUTPUT="$tmp/out" \
+      "$scripts/last-review.sh" > /dev/null 2>&1 &&
+    id="${5:-$(sed -n 's/^review_id=//p' "$tmp/out")}" &&
+    PATH="$tmp:$PATH" LENS="$2" REVIEW_ID="$id" OUT="$tmp/previous.json" GITHUB_REPOSITORY=o/r GH_TOKEN=x \
+      "$scripts/previous-findings.sh" > /dev/null 2>&1 &&
+    [[ "$(jq -r '.[].title' "$tmp/previous.json")" == "$4" ]] && [[ "$(jq '[.[] | select(has("lenses"))] | length' "$tmp/previous.json")" == "0" ]]; then
+    pass "earlier findings: $1"
+  else
+    fail "earlier findings: $1"; cat "$tmp/out" "$tmp/previous.json"
+  fi
+  rm -rf "$tmp"
+}
+review_comment() { jq -c -n --argjson id "$1" --arg u "$2" --arg b "$3" '{id: $id, user: {login: $u}, html_url: "https://x/\($id)", body: $b}'; }
+empty_review="$(jq -s -r --arg sha 1 --argjson min 80 --arg previous "" -f "$scripts/render-review.jq" <(jq '.findings = []' "$fixtures/review/tests.json"))"
+bot="github-actions[bot]"
+tests_titles="$(printf '%s\n%s' "Overdue check compares dates in the server's time zone" "Ordering test relies on insertion order for equal due dates")"
+previous_case "a first review has none" tests "[]" ""
+previous_case "each lens gets its own" tests "[$(review_comment 1 "$bot" "$first")]" "$tests_titles"
+previous_case "a merged finding goes to every lens that found it" correctness "[$(review_comment 1 "$bot" "$first")]" "Overdue check compares dates in the server's time zone"
+previous_case "findings below the minimum were never posted, so aren't checked" security "[$(review_comment 1 "$bot" "$first")]" ""
+previous_case "only the newest review counts" tests "[$(review_comment 1 "$bot" "$first"),$(review_comment 2 "$bot" "$empty_review")]" ""
+previous_case "a review copied by a person is ignored" tests "[$(review_comment 1 jim "$first")]" ""
+previous_case "an ID that isn't the pipeline's review is ignored" tests "[$(review_comment 1 "$bot" "$first"),$(review_comment 2 jim "$first")]" "" 2
+previous_case "unreadable saved findings count as none" tests "[$(review_comment 1 "$bot" "<!-- ai-pipeline:review -->
+<!-- ai-pipeline:findings bm90IGpzb24= -->")]" ""
+previous_case "\\r\\n line endings" tests "[$(review_comment 1 "$bot" "$(sed 's/$/\r/' <<< "$first")")]" "$tests_titles"
+# A review deleted after prepare read it: the stand-in gh answers 404 for an ID it doesn't have.
+tmp="$(mktemp -d)"; findings_gh "$tmp" "[]"
+sed -i.bak 's/^if \[\[ "\$2" =~/if [[ "$2" == *\/comments\/9 ]]; then echo "gh: Not Found (HTTP 404)" >\&2; exit 1\nelif [[ "$2" =~/' "$tmp/gh"
+if PATH="$tmp:$PATH" LENS=tests REVIEW_ID=9 OUT="$tmp/previous.json" GITHUB_REPOSITORY=o/r GH_TOKEN=x \
+    "$scripts/previous-findings.sh" > /dev/null 2>&1 && [[ "$(cat "$tmp/previous.json")" == "[]" ]]; then
+  pass "earlier findings: a review deleted since prepare counts as none"
+else
+  fail "earlier findings: a review deleted since prepare counts as none"
+fi
+rm -rf "$tmp"
+tmp="$(mktemp -d)"; findings_gh "$tmp" "[$(review_comment 1 "$bot" "$first"),$(review_comment 2 "$bot" "$empty_review")]"
+if PATH="$tmp:$PATH" PR_NUMBER=14 GITHUB_REPOSITORY=o/r GH_TOKEN=x GITHUB_OUTPUT="$tmp/out" "$scripts/last-review.sh" > /dev/null &&
+  grep -q "^review_id=2$" "$tmp/out" && grep -q "^review_url=https://x/2$" "$tmp/out"; then
+  pass "prepare reads the newest review once, for every lens and the new review's link"
+else
+  fail "prepare reads the newest review once, for every lens and the new review's link"
+fi
+rm -rf "$tmp"
+# A still-present finding is posted and saved even when the lens gave it a low confidence.
+again="$(mktemp -d)"
+cp "$fixtures"/review/*.json "$again/"
+jq '.previous = [{title: "Due date might be logged", file: "src/tasks/task-routes.ts", status: "still-present", note: "Still logged."}]' \
+  "$fixtures/review/security.json" > "$again/security.json"
+kept="$(jq -s -r --arg sha 1 --argjson min 80 --arg previous "" -f "$scripts/render-review.jq" "$again"/*.json)"
+if grep -q "^### 🟠 Due date might be logged" <<< "$kept" &&
+  tail -1 <<< "$kept" | sed -E 's/^<!-- ai-pipeline:findings (.*) -->$/\1/' | base64 -d | jq -e 'any(.[]; .title == "Due date might be logged")' > /dev/null; then
+  pass "a finding still there is posted and saved, whatever its confidence"
+else
+  fail "a finding still there is posted and saved, whatever its confidence"
+fi
+rm -rf "$again"
+
+prctx="$(jq -n -r --argjson pr "$(jq --arg b "$first" '.comments += [{author: {login: "github-actions"}, authorAssociation: "NONE", createdAt: "2026-11-03T10:00:00Z", body: $b}]' "$fixtures/pr-view.json")" \
+  --argjson inline "$(cat "$fixtures/pr-inline-comments.json")" --argjson trusted '["jim"]' -f "$scripts/pr-context.jq")"
+if grep -q "AI review of 3f9c2e1" <<< "$prctx" && ! grep -q "ai-pipeline:findings" <<< "$prctx"; then
+  pass "the fix agent reads the review without its saved findings"
+else
+  fail "the fix agent reads the review without its saved findings"
+fi
 
 echo "Status"
 # A stand-in gh that records every call's arguments.

@@ -4,6 +4,7 @@
   "required": [
     "lens",
     "verdict",
+    "previous",
     "findings",
     "coverage"
   ],
@@ -24,6 +25,43 @@
         "changes-requested"
       ],
       "description": "changes-requested when any finding with confidence 80 or more (the default minimum) has severity high."
+    },
+    "previous": {
+      "type": "array",
+      "description": "What happened to each finding in .pipeline/previous-findings.json (the findings of your lens in the last review), one entry each. Empty on a first review.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "title",
+          "file",
+          "status",
+          "note"
+        ],
+        "properties": {
+          "title": {
+            "type": "string",
+            "description": "The title of the earlier finding, as given."
+          },
+          "file": {
+            "type": "string",
+            "description": "The file of the earlier finding, as given."
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "fixed",
+              "still-present",
+              "no-longer-applies"
+            ],
+            "description": "fixed: the code now handles it. still-present: it is still there (and is in findings again). no-longer-applies: the code it was about is gone or changed so the finding is moot."
+          },
+          "note": {
+            "type": "string",
+            "description": "One sentence: what you checked, in the code at this commit."
+          }
+        }
+      }
     },
     "findings": {
       "type": "array",

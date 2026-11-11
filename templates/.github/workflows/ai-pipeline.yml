@@ -69,6 +69,8 @@ jobs:
       base_sha: ${{ steps.target.outputs.base_sha }}
       issue: ${{ steps.target.outputs.issue }}
       approved: ${{ steps.target.outputs.approved }}
+      review_id: ${{ steps.target.outputs.review_id }}
+      review_url: ${{ steps.target.outputs.review_url }}
     env:
       GH_TOKEN: ${{ github.token }}
       NUMBER: ${{ github.event.issue.number }}
@@ -150,6 +152,8 @@ jobs:
                 # The /approve the pull request was built from (render-pr-body.jq); none on pull requests a person opened.
                 echo "approved=$(jq -r '.body // "" | capture("<!-- ai-pipeline:approved (?<id>[0-9]+) -->").id // empty' <<< "$pr")"
               } >> "$GITHUB_OUTPUT"
+              # The last review, read once now: every lens checks its findings and the new review links to it.
+              PR_NUMBER="$NUMBER" ./pipeline/scripts/last-review.sh
               ;;
           esac
 
@@ -449,6 +453,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ needs.publish.outputs.pr || needs.prepare.outputs.pr }}
+          LENS: ${{ matrix.lens }}
+          REVIEW_ID: ${{ needs.prepare.outputs.review_id }}
         run: |
           mkdir -p .pipeline
           git -C pr diff "origin/${BASE_REF}...HEAD" > .pipeline/diff.patch
@@ -456,6 +462,8 @@ jobs:
           # The description (the build agent's summary, checks and follow-ups, including anything it couldn't verify)
           # and the collaborators' conversation.
           ./pipeline/scripts/gather-pr-context.sh
+          # This lens's findings from the last review (the one prepare read), to check first.
+          ./pipeline/scripts/previous-findings.sh
           # Claude Code loads CLAUDE.md files (and .claude/ rules) from folders it reads in, so the pull request could
           # instruct its own reviewers. Remove them from the copy the reviewers read; the diff still shows them.
           find pr -path pr/.git -prune -o \( -name CLAUDE.md -o -name CLAUDE.local.md \) -type f -print -exec rm -f {} +
@@ -497,7 +505,7 @@ jobs:
           path: findings/
           overwrite: true
 
-  # One review comment on the pull request, updated in place on every re-review.
+  # A new review comment on the pull request for every review; earlier ones are never edited.
   summarize:
     needs: [prepare, publish, review]
     if: always() && !cancelled() && needs.review.result != 'skipped'
@@ -530,6 +538,7 @@ jobs:
           PR_NUMBER: ${{ needs.publish.outputs.pr || needs.prepare.outputs.pr }}
           HEAD_SHA: ${{ needs.publish.outputs.sha || needs.prepare.outputs.head_sha }}
           MIN_CONFIDENCE: ${{ vars.PIPELINE_REVIEW_MIN_CONFIDENCE || '80' }}
+          PREVIOUS_URL: ${{ needs.prepare.outputs.review_url }}
 
       - uses: actions/upload-artifact@v4
         if: failure()

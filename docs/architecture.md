@@ -42,7 +42,7 @@ Claude never calls GitHub: it reads and edits files on the runner and answers in
 | `/plan` (issue) | prepare → plan → finish | read | `plan.schema.json` | plan comment, status label |
 | `/approve` (issue) | prepare → build → publish → review ×4 → summarize → finish | read, edit, run `run-checks.sh` | `build-report.schema.json` | new branch, pull request, review |
 | `/fix` (PR) | same as `/approve` | same | same | commits on the PR's branch, a comment saying what changed, review |
-| `/review` (PR) | prepare → review ×4 → summarize → finish | read | `review-findings.schema.json` | the review comment, updated in place |
+| `/review` (PR) | prepare → review ×4 → summarize → finish | read | `review-findings.schema.json` | a new review comment |
 | `/cancel` | prepare → cancel | — | — | cancels the running commands there |
 
 ## Issue lifecycle
@@ -126,9 +126,9 @@ checks fail, nothing is pushed and the status says why.
 | Trigger | automatically in the same run, right after a build or fix pushes; or `/review` on a pull request |
 | Jobs | `review` (matrix of 4 lenses, `fail-fast: false`) → `summarize` |
 | Agent | `/pipeline-review <lens>` · tools `Read, Glob, Grep` · 100 turns · 45-minute job each (adjustable) |
-| Output | [`review-findings.schema.json`](../templates/pipeline/schemas/review-findings.schema.json): lens, verdict, findings (severity, confidence, file, line, title, detail, suggestion) |
-| Context | `.pipeline/diff.patch` and the changed-file list; `.pipeline/pr.md` (the description, including the build agent's follow-ups and anything it says it couldn't verify, and the collaborators' conversation); `.pipeline/issue.md` |
-| Effect | one review comment on the pull request, updated in place on every re-review; the command's status links to it |
+| Output | [`review-findings.schema.json`](../templates/pipeline/schemas/review-findings.schema.json): lens, verdict, previous (what happened to each finding of the last review), findings (severity, confidence, file, line, title, detail, suggestion) |
+| Context | `.pipeline/diff.patch` and the changed-file list; `.pipeline/pr.md` (the description, including the build agent's follow-ups and anything it says it couldn't verify, and the collaborators' conversation); `.pipeline/issue.md`; `.pipeline/previous-findings.json` (this lens's findings from the last review: `prepare` finds that comment once with `last-review.sh`, so all four lenses check the same one, and `previous-findings.sh` reads them from it) |
+| Effect | a new review comment on the pull request for every review, never an edit of an earlier one; a re-review opens with **Since the last review** (linking to it: fixed, still there, no longer applies); the command's status links to it |
 
 The default branch is checked out at the root and the pinned head commit in `pr/`. The prompts, settings and scripts
 therefore always come from the default branch: a pull request can't change how it is reviewed.

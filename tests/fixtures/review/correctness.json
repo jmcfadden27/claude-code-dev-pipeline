@@ -1,6 +1,7 @@
 {
   "lens": "correctness",
   "verdict": "changes-requested",
+  "previous": [],
   "findings": [
     {
       "severity": "high",

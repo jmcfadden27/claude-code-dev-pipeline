@@ -13,7 +13,7 @@ Closes #12
 
 Tasks can now have an optional due date.
 
-## Conversation (oldest first; the AI review starts with <!-- ai-pipeline:review -->)
+## Conversation (oldest first; each AI review starts with <!-- ai-pipeline:review -->, the last is the latest)
 
 ### @github-actions · 2026-11-02T16:10:00Z
 

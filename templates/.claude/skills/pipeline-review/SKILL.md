@@ -17,6 +17,8 @@ others' findings. Your lens is: **$ARGUMENTS**.
   anything it says it could not verify) and the collaborators' conversation.
 - `.pipeline/issue.md`: the issue the pull request implements (request, approved plan, answers), when there is one,
   up to the `/approve` the pull request was built from.
+- `.pipeline/previous-findings.json`: your lens's findings from the last AI review of this pull request (severity,
+  file, line, title, detail). An empty list on a first review.
 - `pr/`: the repository at the pull request's head. Review the code there; paths in your findings are relative to it.
 - `CLAUDE.md` at the root: the project's rules, from the base branch.
 
@@ -30,7 +32,14 @@ others' findings. Your lens is: **$ARGUMENTS**.
 
 ## How to work
 
-1. Read the whole diff, then every changed file your lens covers **in full** in `pr/`, and the surrounding code each
+1. **Check the last review's findings first.** For each one in `.pipeline/previous-findings.json`, read the code it
+   points to at this commit (lines may have moved) and report it in `previous` with its title and file as given:
+   `fixed` when the code now handles it, `still-present` when it is still there, `no-longer-applies` when the code it
+   was about is gone or changed so the finding is moot. A `still-present` finding goes in `findings` again, with its
+   current line and the same title and file, so it stays visible and keeps blocking if it is high. You verified it,
+   so give it a confidence of 80 or more. Then review the change as below; don't let the
+   earlier list limit what you look for.
+2. Read the whole diff, then every changed file your lens covers **in full** in `pr/`, and the surrounding code each
    change depends on. Review the change, not the whole codebase. On a large change, start with the riskiest files
    (database migrations, access checks, anything that writes data) so they are never the ones left unchecked.
    - When the change **copies or redefines existing code** (for example a migration that redefines a function an
@@ -38,20 +47,20 @@ others' findings. Your lens is: **$ARGUMENTS**.
      difference other than the intended one is a finding.
    - When the description or follow-ups in `.pipeline/pr.md` say something **was not verified** (for example "the
      reviewer should diff …"), check it yourself if your lens covers it, and report what you found.
-2. Report only what you verified in the code, each with a concrete scenario: the input or state, and what goes wrong.
+3. Report only what you verified in the code, each with a concrete scenario: the input or state, and what goes wrong.
    No style opinions, no speculation, nothing your lens doesn't cover.
-3. Severity: **high** breaks behaviour, security or data for real users; **medium** is a real defect in a less common
+4. Severity: **high** breaks behaviour, security or data for real users; **medium** is a real defect in a less common
    path; **low** is a minor issue worth fixing.
-4. Confidence (0–100): how sure you are, after checking the code, that the finding is a real defect a person would
+5. Confidence (0–100): how sure you are, after checking the code, that the finding is a real defect a person would
    want fixed. Findings below the pipeline's minimum (80 by default) are not posted, so don't pad the list: an empty list
    is a good result.
-5. Do not change any file.
-6. Report your coverage honestly: `coverage.filesChecked` lists every changed file you read in full and checked;
+6. Do not change any file.
+7. Report your coverage honestly: `coverage.filesChecked` lists every changed file you read in full and checked;
    `coverage.notChecked` lists every relevant file or claim you did not check (for example you ran out of time, or a
    comparison you could not make) and why. An empty `findings` list with an honest coverage is a good result; an
    empty list that hides what you skipped is not.
 
 ## Output
 
-Return the structured findings for your lens. `verdict` is `changes-requested` when any finding with confidence
+Return the structured findings for your lens, with `previous` (empty on a first review). `verdict` is `changes-requested` when any finding with confidence
 80 or more is high, otherwise `approve`. An empty `findings` list is a good outcome, not a failure.
