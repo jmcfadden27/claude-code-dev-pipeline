@@ -314,7 +314,7 @@ claude-code-dev-pipeline/scripts/create-labels.sh <owner>/<repo>
 | Label | Set by the pipeline when |
 | --- | --- |
 | `ai:needs-answers` | the plan has questions for you |
-| `ai:plan-ready` | the plan has no open questions and is ready for `/approve` |
+| `ai:plan-ready` | the plan has no open questions, has acceptance criteria and is ready for `/approve` |
 
 **Check:** **Issues → Labels** shows both.
 
@@ -497,6 +497,7 @@ Use this to try changes to a skill's instructions before they reach the pipeline
 | **GitHub Actions is not permitted to create or approve pull requests** | Tick "Allow GitHub Actions to create and approve pull requests" (step 1). The branch was already pushed: open its pull request from the link in the log and comment `/review`. |
 | The run fails in the **Plan / Build or fix / Review** (Claude) step with an authentication error | The secret is missing or misnamed (step 7), or the token expired (`claude setup-token` again). Test the token locally with `claude`. |
 | `/approve` fails with **There is no plan on this issue yet** | Comment `/plan` first. |
+| `/approve` fails with **The latest plan isn't ready to build** | The latest plan has open questions or no acceptance criteria. Comment `/plan` with your answers; approve the new plan. |
 | **is not configured for this repository yet** | `pipeline/scripts/run-checks.sh` still has the template body (step 3). |
 | The Claude step stops at the turn limit, or the status says **stopped at its time limit** | The change is too big for one run. Split the issue, or raise `PIPELINE_MAX_TURNS_*` / `PIPELINE_TIMEOUT_*` (see "Choosing the model and limits"). |
 | Fix fails with **changed workflow files since this branch was made** | GitHub doesn't let a workflow's token push changes to `.github/workflows/`, so the pipeline can't bring those into the branch. Update the branch yourself (below), then `/fix` again. This happens only when the default branch's workflows changed after the pull request was opened, for example after you updated the pipeline. |

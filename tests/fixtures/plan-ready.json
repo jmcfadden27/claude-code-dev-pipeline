@@ -14,6 +14,10 @@
     { "path": "src/tasks/task-routes.ts", "change": "modify" },
     { "path": "test/tasks.test.ts", "change": "modify" }
   ],
+  "acceptanceCriteria": [
+    { "criterion": "A task can be created and updated with an optional due date, including one in the past", "check": "API tests create and update tasks with no due date, a future date and a past date" },
+    { "criterion": "GET /tasks lists open overdue tasks first; completed tasks are never overdue", "check": "An API test lists open and completed tasks with past, future and no due dates and checks the order" }
+  ],
   "risks": [],
   "questions": [],
   "readyToBuild": true

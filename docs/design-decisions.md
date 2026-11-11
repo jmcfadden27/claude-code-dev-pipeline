@@ -24,7 +24,8 @@ so questions would end the run anyway.
 
 **Decision:** each run rebuilds its context from the issue thread; nothing is stored between runs.
 **Why:** it is auditable (every input is on GitHub), it survives runner restarts, and it makes "re-plan with my
-answers" a simple re-run.
+answers" a simple re-run. A build reads the thread only up to its `/approve` (and so do the reviews and fixes of its
+pull request), so what was approved is what gets built, however long the build waits.
 
 ### 4. Agents decide; workflow steps act
 
@@ -47,7 +48,8 @@ changed.
 merged by a deterministic step.
 **Why:** a single reviewer anchors on the first problems it finds. Narrow lenses go deeper, parallel jobs keep wall
 time flat, and agreement between independent reviewers is a useful signal (the summary shows which lenses found
-each issue). The requirements lens checks the diff against the approved plan, closing the loop with stage 1.
+each issue). The requirements lens checks the diff against the approved plan and its acceptance criteria, closing the loop with
+stage 1.
 Each finding carries a confidence score and only findings at 80 or above are posted (the rest are counted): a reviewer
 asked to find problems always finds something, and Anthropic's own code-review plugin filters the same way.
 **Alternative:** one reviewer with a long checklist. Cheaper, and a reasonable setting for small changes: drop lenses

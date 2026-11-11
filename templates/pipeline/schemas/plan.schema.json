@@ -1,7 +1,7 @@
 {
   "type": "object",
   "additionalProperties": false,
-  "required": ["summary", "approach", "steps", "files", "risks", "questions", "readyToBuild"],
+  "required": ["summary", "approach", "steps", "files", "acceptanceCriteria", "risks", "questions", "readyToBuild"],
   "properties": {
     "summary": {
       "type": "string",
@@ -26,6 +26,25 @@
         "properties": {
           "path": { "type": "string" },
           "change": { "type": "string", "enum": ["create", "modify", "delete"] }
+        }
+      }
+    },
+    "acceptanceCriteria": {
+      "type": "array",
+      "description": "What must be true when the change is done, each specific enough to check, and how it is checked. From the acceptance criteria in the request, or proposed by you when it has none.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["criterion", "check"],
+        "properties": {
+          "criterion": {
+            "type": "string",
+            "description": "One observable outcome, for example: GET /tasks lists open overdue tasks first."
+          },
+          "check": {
+            "type": "string",
+            "description": "How it is checked: the test that will cover it, or the command or manual step when a test cannot."
+          }
         }
       }
     },

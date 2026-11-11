@@ -24,13 +24,19 @@ understand it, study the codebase, and return a plan they can approve — or the
 3. Decide what you can decide yourself (technical details with a clear best answer, following existing patterns).
    Ask only about what the requester must decide: product behaviour, scope, trade-offs with no clear winner, and
    anything destructive (data migrations, deleting features, breaking APIs).
-4. Do not change any file. Do not run commands.
+4. Turn the request's acceptance criteria into ones that can be checked. Each names one observable outcome and how it
+   is checked (normally a test). Sharpen wording yourself when the meaning is clear; when a criterion is vague ("works
+   well", "is fast") or could mean two things, ask about it. When the request has no criteria, propose them from the
+   goal. Don't add criteria the request didn't ask for.
+5. Do not change any file. Do not run commands.
 
 ## Output
 
 Return the structured plan:
 
 - `summary`, `approach`, `steps`, `files`, `risks` as described in the schema.
+- `acceptanceCriteria`: at least one. Approving the plan approves this list; the build is done when every one is
+  met, and the review checks the pull request against it.
 - `questions`: plain-language questions, each answerable in a sentence. Empty when nothing is unclear.
 - `readyToBuild`: true only when `questions` is empty and the plan can be built as written.
 

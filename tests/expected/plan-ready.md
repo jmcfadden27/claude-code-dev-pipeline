@@ -22,6 +22,13 @@ As before, with the answers applied: due dates in the past are allowed, and only
 - `src/tasks/task-routes.ts` (modify)
 - `test/tasks.test.ts` (modify)
 
+### Acceptance criteria
+
+1. A task can be created and updated with an optional due date, including one in the past  
+   _Check:_ API tests create and update tasks with no due date, a future date and a past date
+2. GET /tasks lists open overdue tasks first; completed tasks are never overdue  
+   _Check:_ An API test lists open and completed tasks with past, future and no due dates and checks the order
+
 ### Risks
 
 _None._

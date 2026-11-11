@@ -11,15 +11,18 @@ that plan in the working tree.
 
 ## Inputs
 
-- `.pipeline/issue.md`: the issue thread. The approved plan is the latest comment starting with
-  `<!-- ai-pipeline:plan -->`; answers and clarifications from the requester may follow it and take precedence.
+- `.pipeline/issue.md`: the issue thread, up to the `/approve` that started this build. The approved plan is the
+  latest comment starting with `<!-- ai-pipeline:plan -->`; answers and clarifications from the requester may follow
+  it and take precedence.
 - The repository and `CLAUDE.md` (the project's rules).
 
 ## How to work
 
 1. Implement the approved plan. Stay inside its scope: no unrelated refactors, renames or "while I'm here" fixes. If
    something outside the plan must change, make the smallest change that works and list it in `followUps`.
-2. Follow the patterns in the surrounding code and `CLAUDE.md`. Add or update tests for the behaviour you change.
+2. Follow the patterns in the surrounding code and `CLAUDE.md`. Add or update tests for the behaviour you change,
+   including the check the plan names for each of its acceptance criteria. The change is done when every criterion
+   is met; one you couldn't meet or check goes in `followUps`.
 3. Run `./pipeline/scripts/run-checks.sh` exactly like that, from the repository root (the folder you
    start in; never `cd` first). It can take a long time (allow up to 60 minutes); wait for it to finish. Fix what fails
    and run it again until it exits 0. Besides it, you can run only `diff` and `git diff` (read-only), for example to

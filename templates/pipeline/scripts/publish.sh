@@ -12,7 +12,7 @@
 # repository's own CI won't run on it automatically; the build job ran the checks itself. See docs/design-decisions.md.
 #
 # Env: IN (the downloaded artifact folder), MODE (build | fix), ISSUE_NUMBER, BASE_REF; build: BASE_SHA (the commit the
-# build started from); fix: PR_NUMBER, HEAD_REF, HEAD_SHA (the pull request's commit when /fix was accepted); GH_TOKEN,
+# build started from), APPROVED_COMMENT (the /approve comment's ID, recorded in the description); fix: PR_NUMBER, HEAD_REF, HEAD_SHA (the pull request's commit when /fix was accepted); GH_TOKEN,
 # GITHUB_REPOSITORY, GITHUB_RUN_ID, GITHUB_RUN_ATTEMPT. Step outputs: pr, sha, url (the pull request, or the fix's
 # comment), note (a fix that changed nothing: why).
 set -euo pipefail
@@ -95,7 +95,7 @@ if ! git push -q "$remote" "${push_args[@]}"; then
 fi
 
 if [[ "$MODE" == "build" ]]; then
-  body="$(jq -r --arg issue "$ISSUE_NUMBER" -f "$here/render-pr-body.jq" <<< "$report")"
+  body="$(jq -r --arg issue "$ISSUE_NUMBER" --arg approved "${APPROVED_COMMENT:-}" -f "$here/render-pr-body.jq" <<< "$report")"
   body="${body//@/@${zero_width}}"
   if ! url="$(gh pr create --repo "$GITHUB_REPOSITORY" --base "$BASE_REF" --head "$branch" --title "$title" --body "$body")"; then
     fail "The branch ${branch} was pushed, but opening the pull request failed (see the run log). Open it from the branch yourself, or delete the branch and comment \`/approve\` again."

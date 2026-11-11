@@ -15,7 +15,8 @@ others' findings. Your lens is: **$ARGUMENTS**.
   changed files.
 - `.pipeline/pr.md`: the pull request's description (the build agent's summary, checks and follow-ups, including
   anything it says it could not verify) and the collaborators' conversation.
-- `.pipeline/issue.md`: the issue the pull request implements (request, approved plan, answers), when there is one.
+- `.pipeline/issue.md`: the issue the pull request implements (request, approved plan, answers), when there is one,
+  up to the `/approve` the pull request was built from.
 - `pr/`: the repository at the pull request's head. Review the code there; paths in your findings are relative to it.
 - `CLAUDE.md` at the root: the project's rules, from the base branch.
 
@@ -24,7 +25,8 @@ others' findings. Your lens is: **$ARGUMENTS**.
 - **correctness**: logic errors, wrong conditions, unhandled states and errors, broken callers, concurrency issues.
 - **security**: injection, auth and access checks, secrets in code or logs, unsafe input handling, new dependencies.
 - **tests**: changed behaviour without tests, tests that can't fail, missing edge cases, flaky patterns.
-- **requirements**: the diff against the approved plan and the request: anything missing, extra, or different.
+- **requirements**: the diff against the approved plan and the request: anything missing, extra, or different. Check
+  each of the plan's acceptance criteria: is it met, and does the check the plan names for it exist and test it?
 
 ## How to work
 

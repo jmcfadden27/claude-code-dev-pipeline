@@ -42,7 +42,7 @@ for f in "$schemas"/*.json "$fixtures"/*.json "$fixtures"/review/*.json "$root"/
 done
 for f in "$scripts"/*.jq; do
   # Compile only: wrap the program so it never runs.
-  if jq -n --arg sha x --arg issue 1 --arg kind x --arg pr 1 --arg note x --argjson min 80 --argjson inline '[]' --argjson trusted '[]' "empty | ($(cat "$f")
+  if jq -n --arg sha x --arg issue 1 --arg kind x --arg pr 1 --arg note x --arg approved x --argjson min 80 --argjson inline '[]' --argjson trusted '[]' "empty | ($(cat "$f")
 )" > /dev/null 2>&1; then
     pass "jq compiles ${f#"$root"/}"
   else
@@ -95,7 +95,7 @@ done
 echo "Renderers"
 check_render plan-with-questions "$(jq -r -f "$scripts/render-plan.jq" "$fixtures/plan-with-questions.json")"
 check_render plan-ready "$(jq -r -f "$scripts/render-plan.jq" "$fixtures/plan-ready.json")"
-check_render pr-body "$(jq -r --arg issue 12 -f "$scripts/render-pr-body.jq" "$fixtures/build-report.json")"
+check_render pr-body "$(jq -r --arg issue 12 --arg approved "" -f "$scripts/render-pr-body.jq" "$fixtures/build-report.json")"
 check_render review "$(jq -s -r --arg sha 3f9c2e1a7b --argjson min 80 -f "$scripts/render-review.jq" "$fixtures"/review/*.json)"
 check_render commit-message "$(jq -r --arg kind build --arg issue 12 --arg pr "" --arg note "" -f "$scripts/commit-message.jq" "$fixtures/build-report.json")"
 check_render commit-message-breaking "$(jq '.commit.breaking = true | .commit.breakingChange = "GET /tasks no longer sorts by creation time first."' "$fixtures/build-report.json" \
@@ -104,7 +104,7 @@ check_render commit-message-fix "$(jq '.commit.type = "fix" | .commit.summary = 
   | jq -r --arg kind fix --arg issue 12 --arg pr 14 --arg note "Also brings in the latest main." -f "$scripts/commit-message.jq")"
 check_render pr-context "$(jq -n -r --argjson pr "$(cat "$fixtures/pr-view.json")" --argjson inline "$(cat "$fixtures/pr-inline-comments.json")" --argjson trusted '["jim"]' \
   -f "$scripts/pr-context.jq")"
-check_render issue-context "$(jq -r --argjson trusted '["jim"]' -f "$scripts/issue-context.jq" "$fixtures/issue-view.json")"
+check_render issue-context "$(jq -r --argjson trusted '["jim"]' --arg approved "" -f "$scripts/issue-context.jq" "$fixtures/issue-view.json")"
 
 echo "Examples"
 # examples/ shows the renderers' real output: each file is a two-line caption, then the expected output.
@@ -118,7 +118,7 @@ for pair in "02-plan-with-questions:plan-with-questions" "04-plan-ready:plan-rea
 done
 
 echo "Behaviour"
-context="$(jq -r --argjson trusted '["jim"]' -f "$scripts/issue-context.jq" "$fixtures/issue-view.json")"
+context="$(jq -r --argjson trusted '["jim"]' --arg approved "" -f "$scripts/issue-context.jq" "$fixtures/issue-view.json")"
 if grep -q "crypto wallet" <<< "$context"; then fail "untrusted comments are withheld"; else pass "untrusted comments are withheld"; fi
 if grep -q "Allow past dates" <<< "$context"; then pass "owner answers reach the agent"; else fail "owner answers reach the agent"; fi
 if grep -q "ai-pipeline:plan" <<< "$context"; then pass "the pipeline's plan reaches the agent"; else fail "the pipeline's plan reaches the agent"; fi
@@ -398,6 +398,126 @@ if (
   grep -q "Brought in the latest main" "$tmp/calls"
 ); then pass "a fix that only brought in the base says so"; else fail "a fix that only brought in the base says so"; fi
 rm -rf "$tmp" "$fakebin"
+
+echo "Plan comment"
+# A stand-in gh that records the labels post-plan.sh sets.
+plan_gh() {
+  cat > "$1/gh" <<'GH'
+#!/usr/bin/env bash
+log="$(dirname "$0")/calls"
+if [[ "$1 $2" == "issue comment" ]]; then echo "https://github.com/o/r/issues/12#issuecomment-3"
+elif [[ "$1 $2" == "issue edit" ]]; then echo "$6 $7" >> "$log"
+fi
+GH
+  chmod +x "$1/gh"
+}
+for case in "plan-ready:--add-label ai:plan-ready:true" "plan-with-questions:--add-label ai:needs-answers:false"; do
+  name="${case%%:*}"; rest="${case#*:}"; want="${rest%:*}"; ready="${rest##*:}"
+  tmp="$(mktemp -d)"; plan_gh "$tmp"
+  if (
+    PATH="$tmp:$PATH" PLAN_JSON="$(cat "$fixtures/$name.json")" ISSUE_NUMBER=12 GITHUB_REPOSITORY=o/r GH_TOKEN=x \
+      GITHUB_OUTPUT="$tmp/out" "$scripts/post-plan.sh" > /dev/null
+    [[ "$(head -1 "$tmp/calls")" == "$want" ]] && grep -q "^ready=${ready}$" "$tmp/out"
+  ); then pass "the plan comment: ${name} → ${want#--add-label }"; else fail "the plan comment: ${name} → ${want#--add-label }"; cat "$tmp/calls" "$tmp/out"; fi
+  rm -rf "$tmp"
+done
+no_criteria="$(jq -c '.acceptanceCriteria = []' "$fixtures/plan-ready.json")"
+tmp="$(mktemp -d)"; plan_gh "$tmp"
+if (
+  PATH="$tmp:$PATH" PLAN_JSON="$no_criteria" ISSUE_NUMBER=12 GITHUB_REPOSITORY=o/r GH_TOKEN=x \
+    GITHUB_OUTPUT="$tmp/out" "$scripts/post-plan.sh" > /dev/null
+  [[ "$(head -1 "$tmp/calls")" == "--add-label ai:needs-answers" ]] && grep -q "^ready=false$" "$tmp/out"
+) && plan="$(jq -r -f "$scripts/render-plan.jq" <<< "$no_criteria")" &&
+  grep -q "Not ready to build" <<< "$plan" && ! grep -q "Ready to build" <<< "$plan"; then
+  pass "a plan without acceptance criteria is not ready to build"
+else
+  fail "a plan without acceptance criteria is not ready to build"
+fi
+rm -rf "$tmp"
+plan="$(jq -r -f "$scripts/render-plan.jq" <<< "$(jq -c '.acceptanceCriteria[0].criterion = "first line\n  second line"' "$fixtures/plan-ready.json")")"
+if grep -q "^1\. first line second line  $" <<< "$plan" && grep -A1 "^1\. first line" <<< "$plan" | grep -q "^   _Check:_"; then
+  pass "a criterion with a line break stays one list item"
+else
+  fail "a criterion with a line break stays one list item"
+fi
+
+echo "Approve"
+# A stand-in gh that returns the issue's comments: $2 = one JSON array.
+approve_gh() {
+  printf '%s' "$2" > "$1/comments.json"
+  cat > "$1/gh" <<'GH'
+#!/usr/bin/env bash
+cat "$(dirname "$0")/comments.json"
+GH
+  chmod +x "$1/gh"
+}
+# $1 = what's expected (ready | not ready | no plan), $2 = the case, $3 = the comments, as "id:author:plan JSON|…".
+approve_case() {
+  local want="$1" name="$2" comments="[]" entry id author file tmp got
+  IFS='|' read -r -a entries <<< "$3"
+  # (bash 3.2 treats an empty array as unset.)
+  for entry in ${entries[@]+"${entries[@]}"}; do
+    [[ -n "$entry" ]] || continue
+    id="${entry%%:*}"; author="${entry#*:}"; author="${author%%:*}"; file="${entry#*:*:}"
+    comments="$(jq -c --argjson id "$id" --arg author "$author" --arg body "$(jq -r -f "$scripts/render-plan.jq" "$file")" \
+      '. + [{id: $id, user: {login: $author}, body: $body}]' <<< "$comments")"
+  done
+  tmp="$(mktemp -d)"; approve_gh "$tmp" "$comments"
+  if PATH="$tmp:$PATH" ISSUE_NUMBER=12 COMMENT_ID=200 GITHUB_REPOSITORY=o/r GH_TOKEN=x RUNNER_TEMP="$tmp" \
+    "$scripts/approved-plan.sh" > /dev/null 2>&1; then got="ready"
+  elif grep -q "no plan" "$tmp/failure-reason"; then got="no plan"
+  else got="not ready"; fi
+  if [[ "$got" == "$want" ]]; then pass "/approve: ${name} → ${want}"; else fail "/approve: ${name} → ${want} (got ${got})"; fi
+  rm -rf "$tmp"
+}
+bot="github-actions[bot]"
+plans="$(mktemp -d)"
+cp "$fixtures/plan-ready.json" "$plans/ready.json"
+cp "$fixtures/plan-with-questions.json" "$plans/questions.json"
+jq '.acceptanceCriteria = []' "$fixtures/plan-ready.json" > "$plans/no-criteria.json"
+jq '.readyToBuild = false' "$fixtures/plan-ready.json" > "$plans/not-marked.json"
+jq --arg f '_Comment `/approve` to build this plan._' '.readyToBuild = false | .approach += "\n\n" + $f' "$fixtures/plan-ready.json" > "$plans/spoof.json"
+approve_case "ready" "a ready plan" "101:$bot:$plans/ready.json"
+approve_case "not ready" "a plan with questions" "101:$bot:$plans/questions.json"
+approve_case "not ready" "a plan with no acceptance criteria" "101:$bot:$plans/no-criteria.json"
+approve_case "not ready" "a plan not marked ready" "101:$bot:$plans/not-marked.json"
+approve_case "not ready" "the footer in the agent's text" "101:$bot:$plans/spoof.json"
+approve_case "ready" "a not-ready plan, then a ready one" "101:$bot:$plans/questions.json|150:$bot:$plans/ready.json"
+approve_case "not ready" "a ready plan, then a not-ready one" "101:$bot:$plans/ready.json|150:$bot:$plans/questions.json"
+approve_case "ready" "a not-ready plan posted after the /approve" "101:$bot:$plans/ready.json|250:$bot:$plans/questions.json"
+approve_case "no plan" "only a plan posted after the /approve" "250:$bot:$plans/ready.json"
+approve_case "no plan" "a ready plan copied by a person" "101:jim:$plans/ready.json"
+approve_case "no plan" "no comments" ""
+# A comment edited on GitHub can come back with \r\n line endings.
+tmp="$(mktemp -d)"
+approve_gh "$tmp" "$(jq -c --arg body "$(jq -r -f "$scripts/render-plan.jq" "$plans/ready.json" | sed 's/$/\r/')" '[{id: 101, user: {login: "github-actions[bot]"}, body: $body}]' <<< null)"
+if PATH="$tmp:$PATH" ISSUE_NUMBER=12 COMMENT_ID=200 GITHUB_REPOSITORY=o/r GH_TOKEN=x RUNNER_TEMP="$tmp" "$scripts/approved-plan.sh" > /dev/null 2>&1; then
+  pass "/approve: a ready plan with \\r\\n line endings → ready"
+else
+  fail "/approve: a ready plan with \\r\\n line endings → ready"
+fi
+rm -rf "$tmp" "$plans"
+
+echo "Pinned thread"
+pinned="$(jq -r --argjson trusted '["jim"]' --arg approved 102 -f "$scripts/issue-context.jq" "$fixtures/issue-view.json")"
+if grep -q "Allow past dates" <<< "$pinned" && ! grep -q "withheld\|status notice" <<< "$pinned" && grep -q "later comments are not shown" <<< "$pinned"; then
+  pass "a pinned thread stops at the /approve, and says so"
+else
+  fail "a pinned thread stops at the /approve, and says so"
+fi
+pinned="$(jq '.comments[0].url = null' "$fixtures/issue-view.json" | jq -r --argjson trusted '["jim"]' --arg approved 102 -f "$scripts/issue-context.jq")"
+if ! grep -q "ai-pipeline:plan" <<< "$pinned"; then
+  pass "a comment without an ID is left out of a pinned thread"
+else
+  fail "a comment without an ID is left out of a pinned thread"
+fi
+body="$(jq -r --arg issue 12 --arg approved 102 -f "$scripts/render-pr-body.jq" "$fixtures/build-report.json")"
+id="$(jq -Rsr 'capture("<!-- ai-pipeline:approved (?<id>[0-9]+) -->").id // empty' <<< "$body")"
+if [[ "$id" == "102" ]]; then
+  pass "the pull request records the /approve it was built from, for later /fix and /review runs"
+else
+  fail "the pull request records the /approve it was built from, for later /fix and /review runs"
+fi
 
 echo "Review comment"
 # A stand-in gh that records what's posted; $1 = the comments the pull request already has.
