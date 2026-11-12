@@ -38,7 +38,7 @@ You need:
 | `bash` and `jq` | the installer and tests | `jq --version` |
 | A build and test command that works on Linux | the build stage runs it on GitHub's Ubuntu runners | — |
 
-**How it fits together** (details in [architecture](architecture.md#how-a-stage-runs)): you start every stage with a
+**How it fits together** (details in [architecture](architecture.md#how-a-command-runs)): you start every stage with a
 comment command such as `/plan`. A comment is a GitHub *event*; each one starts the pipeline's workflow on fresh
 GitHub machines, and the jobs for that command do the work. The workflow's
 scripts prepare the input, Claude Code does the stage's work and answers with JSON, and the scripts act on that answer
@@ -47,7 +47,7 @@ scripts prepare the input, Claude Code does the stage's work and answers with JS
 ## 2. Copy the files into your repository
 
 ```bash
-git clone https://github.com/<you>/claude-code-dev-pipeline
+git clone https://github.com/jmcfadden27/claude-code-dev-pipeline.git
 claude-code-dev-pipeline/scripts/install.sh /path/to/your-repo
 ```
 
