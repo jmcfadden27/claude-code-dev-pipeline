@@ -157,12 +157,14 @@ scripts/
 tests/run.sh                       offline checks: syntax, schemas, renderers, trust rules, merge, commit, publish,
                                    installer, shellcheck
 docs/                              architecture, security, design decisions, setup, walkthrough, diagrams
+examples/                          one change end to end: the issue, plans, pull request, review and fix
+CHANGELOG.md · CONTRIBUTING.md · SECURITY.md · LICENSE
 ```
 
 ## Quick start
 
 ```bash
-git clone https://github.com/<you>/claude-code-dev-pipeline
+git clone https://github.com/jmcfadden27/claude-code-dev-pipeline.git
 claude-code-dev-pipeline/scripts/install.sh /path/to/your-repo
 ```
 
@@ -201,6 +203,14 @@ A reference implementation, written against the documented inputs of
 (November 2026). The deterministic parts are covered by `tests/run.sh`; the GitHub and agent interactions should be
 tried in a sandbox repository before relying on them. Known limits are listed in
 [design decisions](docs/design-decisions.md#known-limits).
+
+## Versioning
+
+Releases follow [semantic versioning](https://semver.org); changes are listed in [CHANGELOG.md](CHANGELOG.md).
+
+## Contributing and security
+
+See [CONTRIBUTING.md](CONTRIBUTING.md). To report a security issue, see [SECURITY.md](SECURITY.md).
 
 ## Disclaimer
 

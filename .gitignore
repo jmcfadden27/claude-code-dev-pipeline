@@ -1,4 +1,20 @@
+# OS files
 .DS_Store
-.pipeline/
+Thumbs.db
+
+# Editors and IDEs
+.vscode/
+.idea/
+*.swp
+*~
+
+# Local secrets and settings
+.env
+.env.*
+
+# Python (the optional test dependencies)
 .venv/
 __pycache__/
+
+# Pipeline working files when running the scripts locally
+.pipeline/
